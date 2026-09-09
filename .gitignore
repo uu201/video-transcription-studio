@@ -1,0 +1,33 @@
+# Generated output
+/output/
+
+# Python cache and build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# Local virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Local IDE and editor settings
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local environment and OS metadata
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
