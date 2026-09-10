@@ -21,7 +21,9 @@ from app.services.scanner import Scanner
 from app.services.environment import EnvironmentChecker
 from app.services.realtime import TaskEventHub
 from app.web.views import router as web_router
-from app.workers.worker import TaskWorker
+from app.workers.worker import TaskWorkerPool
+from app.exceptions import AppException
+from app.error_handlers import app_exception_handler, generic_exception_handler
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)-7s | %(message)s", datefmt="%H:%M:%S")
 
@@ -33,20 +35,23 @@ def create_app() -> FastAPI:
     database.migrate()
     scanner = Scanner(database)
     event_hub = TaskEventHub()
-    worker = TaskWorker(settings, database, event_hub)
+
+    # 使用多 Worker 池，默认 2 个 Worker
+    worker_count = getattr(settings, 'worker_count', 2)
+    worker_pool = TaskWorkerPool(settings, database, event_hub, worker_count=worker_count)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         """应用启动数据库和后台 Worker，退出时停止 Worker。"""
-        worker.start()
+        worker_pool.start()
         yield
-        worker.stop()
+        worker_pool.stop()
 
     application = FastAPI(title="视频转文案工作台", version="0.1.0", lifespan=lifespan)
     application.state.settings = settings
     application.state.database = database
     application.state.scanner = scanner
-    application.state.worker = worker
+    application.state.worker = worker_pool
     application.state.event_hub = event_hub
     static_dir = Path(__file__).parent / "static"
     application.mount("/static", StaticFiles(directory=static_dir), name="static")
@@ -56,6 +61,10 @@ def create_app() -> FastAPI:
     application.include_router(exports_router)
     application.include_router(analyses_router)
     application.include_router(transfers_router)
+
+    # 注册全局异常处理器
+    application.add_exception_handler(AppException, app_exception_handler)
+    application.add_exception_handler(Exception, generic_exception_handler)
 
     @application.get("/api/health", tags=["系统"])
     def health() -> dict:
