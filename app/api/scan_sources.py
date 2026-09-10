@@ -84,8 +84,47 @@ def validate_source(source_id: int, db: Database = Depends(database)) -> dict:
 
 @router.post("/{source_id}/scan")
 def scan_source(source_id: int, db: Database = Depends(database), scan_service: Scanner = Depends(scanner)) -> dict:
-    """扫描目录并返回统计信息。"""
+    """扫描目录并返回可供用户勾选的媒体文件。"""
     if not db.fetch_one("SELECT id FROM scan_source WHERE id = ?", (source_id,)):
         raise HTTPException(404, "扫描源不存在")
     result = scan_service.scan(source_id)
-    return {"discovered": result.discovered, "created": result.created, "skipped": result.skipped, "failed": result.failed, "errors": result.errors}
+    return {
+        "discovered": result.discovered,
+        "created": result.created,
+        "skipped": result.skipped,
+        "failed": result.failed,
+        "errors": result.errors,
+        "newMediaIds": result.media_ids,
+    }
+
+
+@router.get("/{source_id}/media")
+def list_source_media(source_id: int, available_only: bool = True, db: Database = Depends(database)) -> list[dict]:
+    """列出扫描源媒体，默认只返回尚未创建任务的文件。"""
+    if not db.fetch_one("SELECT id FROM scan_source WHERE id = ?", (source_id,)):
+        raise HTTPException(404, "扫描源不存在")
+    sql = """
+        SELECT m.*,
+               (SELECT COUNT(*) FROM processing_task t WHERE t.media_file_id = m.id) AS task_count,
+               (SELECT t.status FROM processing_task t WHERE t.media_file_id = m.id ORDER BY t.id DESC LIMIT 1) AS latest_task_status
+        FROM media_file m
+        WHERE m.scan_source_id = ?
+    """
+    if available_only:
+        sql += " AND NOT EXISTS (SELECT 1 FROM processing_task t WHERE t.media_file_id = m.id)"
+    sql += " ORDER BY m.updated_at DESC, m.id DESC"
+    rows = db.fetch_all(sql, (source_id,))
+    return [
+        {
+            "id": row["id"],
+            "fileName": row["file_name"],
+            "path": row["path"],
+            "extension": row["extension"],
+            "sizeBytes": row["size_bytes"],
+            "modifiedAt": row["modified_at"],
+            "status": row["status"],
+            "taskCount": row["task_count"],
+            "latestTaskStatus": row["latest_task_status"],
+        }
+        for row in rows
+    ]

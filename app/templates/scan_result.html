@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}扫描结果 · 文案工场{% endblock %}
+{% block breadcrumb %}<a href="/scan-sources">扫描源</a> <span class="crumb-muted">›</span> 扫描结果{% endblock %}
+{% block content %}
+<section class="page-title-row reveal">
+  <div>
+    <div class="eyebrow"><span class="eyebrow-line"></span>SCAN RESULT / 02B</div>
+    <h1>选择要处理的文件</h1>
+    <p class="detail-path">{{ source.root_path }}</p>
+  </div>
+  <div class="title-mark">02B</div>
+</section>
+
+<section class="reveal delay-1">
+  <div class="scan-result-toolbar">
+    <div>
+      <strong>发现 <span id="total-count">0</span> 个媒体文件</strong>
+      <span class="scan-stats">已选择 <span id="selected-count">0</span> 个</span>
+    </div>
+    <div class="toolbar-actions">
+      <button type="button" class="secondary-action" id="select-all">全选</button>
+      <button type="button" class="secondary-action" id="deselect-all">取消全选</button>
+      <button type="button" class="primary-action" id="create-tasks" disabled>
+        <span>创建任务</span><b>→</b>
+      </button>
+    </div>
+  </div>
+
+  <div class="media-selection-grid" id="media-grid">
+    <!-- 动态加载 -->
+  </div>
+
+  <div class="empty-state" id="empty-state" style="display:none;">
+    <span class="empty-symbol">⌀</span>
+    <strong>没有找到媒体文件</strong>
+    <p>此目录中没有可处理的音视频文件。</p>
+    <a href="/scan-sources" class="secondary-action" style="display:inline-block;margin-top:12px;">返回扫描源</a>
+  </div>
+</section>
+
+<script>
+const sourceId = {{ source.id }};
+const mediaFiles = [];
+const selectedIds = new Set();
+
+async function loadMedia() {
+  try {
+    const response = await fetch(`/api/scan-sources/${sourceId}/media?available_only=true`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || '加载失败');
+
+    mediaFiles.push(...data);
+    document.getElementById('total-count').textContent = data.length;
+
+    if (data.length === 0) {
+      document.getElementById('empty-state').style.display = 'block';
+      return;
+    }
+
+    renderMedia();
+  } catch (error) {
+    toast(error.message || '加载媒体文件失败', true);
+  }
+}
+
+function renderMedia() {
+  const grid = document.getElementById('media-grid');
+  grid.innerHTML = mediaFiles.map(file => {
+    const sizeStr = formatSize(file.sizeBytes);
+    const dateStr = new Date(file.modifiedAt).toLocaleString('zh-CN');
+    return `
+      <label class="media-card" data-id="${file.id}">
+        <input type="checkbox" class="media-checkbox" value="${file.id}">
+        <div class="media-card-content">
+          <span class="file-chip">${file.extension.toUpperCase()}</span>
+          <div class="media-info">
+            <strong>${escapeHtml(file.fileName)}</strong>
+            <small>${sizeStr} · ${dateStr}</small>
+          </div>
+        </div>
+      </label>
+    `;
+  }).join('');
+
+  grid.querySelectorAll('.media-checkbox').forEach(checkbox => {
+    checkbox.addEventListener('change', handleCheckboxChange);
+  });
+}
+
+function handleCheckboxChange(event) {
+  const id = parseInt(event.target.value);
+  if (event.target.checked) {
+    selectedIds.add(id);
+  } else {
+    selectedIds.delete(id);
+  }
+  updateSelection();
+}
+
+function updateSelection() {
+  document.getElementById('selected-count').textContent = selectedIds.size;
+  document.getElementById('create-tasks').disabled = selectedIds.size === 0;
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+document.getElementById('select-all').addEventListener('click', () => {
+  document.querySelectorAll('.media-checkbox').forEach(checkbox => {
+    checkbox.checked = true;
+    selectedIds.add(parseInt(checkbox.value));
+  });
+  updateSelection();
+});
+
+document.getElementById('deselect-all').addEventListener('click', () => {
+  document.querySelectorAll('.media-checkbox').forEach(checkbox => {
+    checkbox.checked = false;
+  });
+  selectedIds.clear();
+  updateSelection();
+});
+
+document.getElementById('create-tasks').addEventListener('click', async () => {
+  const button = document.getElementById('create-tasks');
+  button.disabled = true;
+
+  try {
+    const response = await fetch('/api/tasks/batch', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        mediaFileIds: Array.from(selectedIds)
+      })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.detail || '创建任务失败');
+
+    toast(`成功创建 ${result.created} 个任务`);
+    setTimeout(() => { window.location.href = '/tasks'; }, 800);
+  } catch (error) {
+    toast(error.message || '创建任务失败', true);
+    button.disabled = false;
+  }
+});
+
+loadMedia();
+</script>
+{% endblock %}

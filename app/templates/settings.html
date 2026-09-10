@@ -1,7 +1,30 @@
 {% extends "base.html" %}
-{% block title %}设置 · 文案工场{% endblock %}
-{% block breadcrumb %}设置{% endblock %}
+{% block title %}系统设置 · 文案工场{% endblock %}
+{% block breadcrumb %}系统设置{% endblock %}
 {% block content %}
-<section class="page-head reveal"><div><p class="eyebrow">SYSTEM SETTINGS / 04</p><h1>设置</h1><p class="lede">当前版本优先保证本地转写链路稳定，AI Provider 接口已预留。</p></div></section>
-<section class="settings-grid reveal delay-1"><div class="panel"><p class="eyebrow">ASR ENGINE</p><h2>SenseVoice</h2><dl class="spec-list"><div><dt>模型</dt><dd>iic/SenseVoiceSmall</dd></div><div><dt>设备</dt><dd>CPU · 单并发</dd></div><div><dt>VAD</dt><dd>fsmn-vad</dd></div><div><dt>输出</dt><dd>TXT / JSON / SRT</dd></div></dl></div><div class="panel"><p class="eyebrow">MEDIA TOOLCHAIN</p><h2>FFmpeg</h2><p class="muted">应用从 runtime/ffmpeg 读取内置工具。开发环境可通过环境变量 VIDEO_TEXT_FFMPEG_DIR 覆盖。</p><button class="button button-ghost" onclick="checkTools()">检查媒体工具 <span>→</span></button><div id="tool-result" class="tool-result"></div></div><div class="panel disabled-panel"><p class="eyebrow">AI PROVIDER</p><h2>OpenAI Compatible</h2><p class="muted">AI 总结、大纲和金句接口已预留，默认关闭，不影响转写主链路。</p><span class="tag">未启用</span></div></section>
+<link rel="stylesheet" href="/static/css/settings.css">
+<link rel="stylesheet" href="/static/css/settings-models.css">
+<section class="page-title-row reveal"><div><div class="eyebrow"><span class="eyebrow-line"></span>SYSTEM SETTINGS / 04</div><h1>系统设置</h1><p>确认媒体工具、ASR 依赖和模型缓存位置，让处理链路保持可见。</p></div><div class="title-mark">04</div></section>
+<section class="settings-layout reveal delay-1"><article class="settings-surface"><div class="surface-heading"><div><span class="surface-kicker">ASR ENGINE</span><h2>语音识别引擎</h2></div><span id="funasr-badge" class="status-tag">检查中</span></div><div class="spec-grid"><div><span>Provider</span><strong>SenseVoiceSmall</strong></div><div><span>设备</span><strong>CPU · 单并发</strong></div><div><span>语音活动检测</span><strong>fsmn-vad</strong></div><div><span>输出格式</span><strong>TXT / JSON / SRT</strong></div></div><div class="dependency-help"><span class="help-mark">i</span><div><strong>首次识别会下载模型</strong><p>模型默认缓存到 data/models；如果看到“FunASR 未安装”，请在当前虚拟环境执行 <code>python -m pip install -r requirements.txt</code>。</p></div></div></article><article class="settings-surface"><div class="surface-heading"><div><span class="surface-kicker">MEDIA TOOLCHAIN</span><h2>媒体工具</h2></div><span id="media-badge" class="status-tag">未检查</span></div><p class="settings-copy">应用优先使用 runtime/ffmpeg/windows-x64 下的内置 FFmpeg 和 FFprobe，也支持 VIDEO_TEXT_FFMPEG_DIR 覆盖。</p><button class="secondary-action" onclick="checkTools()">检查媒体工具 <span>→</span></button><div id="tool-result" class="tool-result"></div></article><article class="settings-surface settings-wide"><div class="surface-heading"><div><span class="surface-kicker">MODEL CACHE</span><h2>模型缓存</h2></div><button class="secondary-action" onclick="refreshModelStatus()">重新检测 <span>↻</span></button></div><div class="model-status-grid"><div><span>SenseVoiceSmall</span><strong id="sensevoice-status">检测中</strong><small id="sensevoice-path">—</small></div><div><span>FSMN-VAD</span><strong id="vad-status">检测中</strong><small id="vad-path">—</small></div></div></article><article class="settings-surface settings-wide"><div class="surface-heading"><div><span class="surface-kicker">AI PROVIDER</span><h2>OpenAI Compatible</h2></div><span class="status-tag status-canceled">未启用</span></div><p class="settings-copy">总结、大纲、核心观点和金句接口已预留。AI 未配置时不会阻断本地转写主链路。</p><div class="provider-row"><span>Provider 配置</span><strong>可在后续版本中接入</strong><span class="provider-arrow">↗</span></div></article></section>
+<script>
+window.addEventListener('load', async function () {
+  try {
+    const info = await fetch('/api/system/info').then(function (response) { return response.json(); });
+    const badge = document.getElementById('funasr-badge');
+    if (info.funasr && info.funasr.installed) { badge.textContent = 'FunASR ' + info.funasr.version; badge.className = 'status-tag status-succeeded'; }
+    else { badge.textContent = '未安装'; badge.className = 'status-tag status-failed'; }
+  } catch (error) { document.getElementById('funasr-badge').textContent = '检查失败'; }
+  refreshModelStatus();
+});
+
+async function refreshModelStatus() {
+  try {
+    const result = await fetch('/api/system/environment', {cache: 'no-store'}).then(function (response) { return response.json(); });
+    const sense = result.items.find(function (item) { return item.key === 'iic/SenseVoiceSmall'; });
+    const vad = result.items.find(function (item) { return item.key.indexOf('speech_fsmn_vad') > -1; });
+    if (sense) { document.getElementById('sensevoice-status').textContent = sense.value; document.getElementById('sensevoice-path').textContent = sense.detail; }
+    if (vad) { document.getElementById('vad-status').textContent = vad.value; document.getElementById('vad-path').textContent = vad.detail; }
+  } catch (error) { document.getElementById('sensevoice-status').textContent = '检测失败'; document.getElementById('vad-status').textContent = '检测失败'; }
+}
+</script>
 {% endblock %}

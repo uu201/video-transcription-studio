@@ -16,10 +16,11 @@ LOGGER = logging.getLogger(__name__)
 class TaskWorker:
     """单并发任务 Worker。"""
 
-    def __init__(self, settings: Settings, database: Database):
+    def __init__(self, settings: Settings, database: Database, event_hub=None):
         self.settings = settings
         self.database = database
-        self.pipeline = PipelineService(settings, database)
+        self.event_hub = event_hub
+        self.pipeline = PipelineService(settings, database, event_hub)
         self.worker_id = f"worker-{uuid.uuid4().hex[:8]}"
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -57,4 +58,6 @@ class TaskWorker:
             if changed != 1:
                 return None
             connection.execute("INSERT INTO task_event (task_id, stage, level, message, created_at) VALUES (?, 'PROBING', 'INFO', '开始处理', ?)", (row["id"], now))
+            if self.event_hub:
+                self.event_hub.publish({"type": "task.claimed", "taskId": int(row["id"]), "status": "RUNNING", "stage": "PROBING", "progress": 1, "message": "开始处理", "at": now})
             return int(row["id"])

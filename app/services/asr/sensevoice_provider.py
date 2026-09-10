@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -24,11 +25,23 @@ class SenseVoiceProvider:
         """首次识别时加载模型，避免首页启动依赖模型包。"""
         if self._model is not None:
             return self._model
+        # 将模型缓存固定到项目目录，避免模型散落在用户目录且难以备份。
+        os.environ.setdefault("MODELSCOPE_CACHE", str(self.settings.model_dir))
+        os.environ.setdefault("HF_HOME", str(self.settings.model_dir / "huggingface"))
         try:
             from funasr import AutoModel
         except ImportError as exc:
-            raise AppError("ASR_DEPENDENCY_MISSING", "语音识别依赖未安装", str(exc), False, "执行 pip install -r requirements.txt") from exc
+            raise AppError(
+                "ASR_DEPENDENCY_MISSING",
+                "当前 Python 环境没有安装 FunASR",
+                str(exc),
+                True,
+                "请在启动服务的同一个虚拟环境中执行 python -m pip install -r requirements.txt，然后重试任务",
+            ) from exc
         try:
+            # 第三方模型库的详细下载日志不直接刷屏，阶段进度由平台统一显示。
+            for logger_name in ("funasr", "modelscope", "modelscope.hub", "huggingface_hub"):
+                logging.getLogger(logger_name).setLevel(logging.WARNING)
             self._model = AutoModel(
                 model=self.settings.asr_model,
                 trust_remote_code=True,
@@ -42,6 +55,15 @@ class SenseVoiceProvider:
         except Exception as exc:
             raise AppError("ASR_MODEL_LOAD_FAILED", "语音识别模型加载失败", repr(exc), True, "检查模型目录、网络或切换到 CPU 后重试") from exc
         return self._model
+
+    @staticmethod
+    def dependency_status() -> dict[str, Any]:
+        """返回不加载模型的 FunASR 依赖状态。"""
+        try:
+            import funasr
+            return {"installed": True, "version": getattr(funasr, "__version__", "unknown")}
+        except ImportError as exc:
+            return {"installed": False, "version": None, "error": str(exc)}
 
     @staticmethod
     def _milliseconds(value: Any) -> float:

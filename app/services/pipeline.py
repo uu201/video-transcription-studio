@@ -25,7 +25,7 @@ LOGGER = logging.getLogger(__name__)
 class PipelineService:
     """按阶段更新任务并保存完整转写结果。"""
 
-    def __init__(self, settings: Settings, database: Database):
+    def __init__(self, settings: Settings, database: Database, event_hub=None):
         self.settings = settings
         self.database = database
         self.toolchain = MediaToolchain.from_app_root(settings)
@@ -34,6 +34,7 @@ class PipelineService:
         self.provider = SenseVoiceProvider(settings)
         self.processor = TextProcessor()
         self.exporter = Exporter(settings)
+        self.event_hub = event_hub
 
     def _update(self, task_id: int, stage: TaskStage, progress: int, message: str | None = None) -> None:
         """提交阶段状态与任务事件，保持事务短小。"""
@@ -42,6 +43,8 @@ class PipelineService:
         with self.database.connection() as connection:
             connection.execute("UPDATE processing_task SET current_stage = ?, progress = ?, message = ?, heartbeat_at = ?, updated_at = ? WHERE id = ?", (stage.value, progress, text, now, now, task_id))
             connection.execute("INSERT INTO task_event (task_id, stage, level, message, created_at) VALUES (?, ?, 'INFO', ?, ?)", (task_id, stage.value, text, now))
+        if self.event_hub:
+            self.event_hub.publish({"type": "task.updated", "taskId": task_id, "stage": stage.value, "progress": progress, "message": text, "at": now})
 
     def _cancelled(self, task_id: int) -> bool:
         """检查 Web 请求的取消标记。"""
@@ -78,6 +81,8 @@ class PipelineService:
                     connection.execute("INSERT INTO export_record (task_id, export_type, file_path, created_at) VALUES (?, ?, ?, ?)", (task_id, export_type, str(path), now))
                 connection.execute("UPDATE processing_task SET status = 'SUCCEEDED', current_stage = 'COMPLETED', progress = 100, message = '已完成', finished_at = ?, heartbeat_at = ?, updated_at = ? WHERE id = ?", (now, now, now, task_id))
                 connection.execute("INSERT INTO task_event (task_id, stage, level, message, created_at) VALUES (?, 'COMPLETED', 'SUCCESS', '处理完成', ?)", (task_id, now))
+            if self.event_hub:
+                self.event_hub.publish({"type": "task.completed", "taskId": task_id, "status": "SUCCEEDED", "stage": "COMPLETED", "progress": 100, "message": "处理完成", "at": now})
             LOGGER.info("任务 #%s | 处理完成：%d 段 | %d 字符", task_id, len(asr_result.segments), len(clean_text))
         except AppError as exc:
             self._fail(task_id, exc)
@@ -103,3 +108,5 @@ class PipelineService:
         with self.database.connection() as connection:
             connection.execute("UPDATE processing_task SET status = ?, error_code = ?, error_message = ?, error_detail = ?, retryable = ?, message = ?, finished_at = ?, updated_at = ? WHERE id = ?", (status, error.code, error.user_message, error.detail, int(error.retryable), error.user_message, now, now, task_id))
             connection.execute("INSERT INTO task_event (task_id, stage, level, message, detail, created_at) VALUES (?, ?, 'ERROR', ?, ?, ?)", (task_id, TaskStage.COMPLETED.value, error.user_message, error.user_action, now))
+        if self.event_hub:
+            self.event_hub.publish({"type": "task.failed", "taskId": task_id, "status": status, "stage": TaskStage.COMPLETED.value, "progress": 0, "message": error.user_message, "error": {"code": error.code, "retryable": error.retryable, "action": error.user_action}, "at": now})

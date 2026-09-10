@@ -11,65 +11,50 @@ templates = Jinja2Templates(directory=str(__import__("pathlib").Path(__file__).r
 router = APIRouter(tags=["页面"])
 
 
+def _prototype_page(initial_tab: str = "overview", task_id: int | None = None) -> HTMLResponse:
+    """返回 Vue 单页应用，并注入真实页面路由状态。"""
+    prototype_path = __import__("pathlib").Path(__file__).resolve().parents[1] / "templates" / "workspace.html"
+    html = prototype_path.read_text(encoding="utf-8")
+    # 原型自带的是演示数据脚本，替换为连接真实 API/WebSocket 的工作区脚本。
+    script_marker = "\n  <script>\n    const { createApp, ref, computed, onMounted } = Vue;"
+    script_start = html.find(script_marker)
+    body_end = html.rfind("</body>")
+    if script_start >= 0 and body_end > script_start:
+        # 设置页的模型卡片也绑定实时检测结果，避免继续显示原型中的固定演示状态。
+        html = html.replace('type="success">就绪 100%</el-tag>', ':type="envData.senseVoice.ok ? \'success\' : \'warning\'">{{ envData.senseVoice.status || \'未检测\' }}</el-tag>', 1)
+        html = html.replace('type="success">就绪 100%</el-tag>', ':type="envData.vad.ok ? \'success\' : \'warning\'">{{ envData.vad.status || \'未检测\' }}</el-tag>', 1)
+        # 前面的模板替换会改变字符串长度，因此重新计算脚本结束位置。
+        script_start = html.find(script_marker)
+        body_end = html.rfind("</body>")
+        html = html[:script_start] + "\n  <script>\n    window.__INITIAL_STATE__ = " + __import__("json").dumps({"tab": initial_tab, "taskId": task_id}, ensure_ascii=False) + ";\n  </script>\n  <script src=\"/static/js/workspace.js\"></script>\n" + html[body_end:]
+    return HTMLResponse(html)
+
+
 @router.get("/", response_class=HTMLResponse)
 def dashboard(request: Request, db: Database = Depends(database)) -> HTMLResponse:
     """渲染首页概览。"""
-    counts = {row["status"]: row["count"] for row in db.fetch_all("SELECT status, COUNT(*) AS count FROM processing_task GROUP BY status")}
-    recent = db.fetch_all("SELECT t.*, m.file_name FROM processing_task t JOIN media_file m ON m.id=t.media_file_id ORDER BY t.created_at DESC LIMIT 8")
-    return templates.TemplateResponse(
-        request=request,
-        name="dashboard.html",
-        context={"counts": counts, "recent": recent, "active": "dashboard"},
-    )
+    return _prototype_page("overview")
 
 
 @router.get("/scan-sources", response_class=HTMLResponse)
 def scan_sources_page(request: Request, db: Database = Depends(database)) -> HTMLResponse:
     """渲染扫描源管理页。"""
-    return templates.TemplateResponse(
-        request=request,
-        name="scan_sources.html",
-        context={"sources": db.fetch_all("SELECT * FROM scan_source ORDER BY id DESC"), "active": "sources"},
-    )
+    return _prototype_page("sources")
 
 
 @router.get("/tasks", response_class=HTMLResponse)
 def tasks_page(request: Request, db: Database = Depends(database)) -> HTMLResponse:
     """渲染任务列表页。"""
-    rows = db.fetch_all("SELECT t.*, m.file_name FROM processing_task t JOIN media_file m ON m.id=t.media_file_id ORDER BY t.created_at DESC")
-    return templates.TemplateResponse(
-        request=request,
-        name="tasks.html",
-        context={"tasks": rows, "active": "tasks"},
-    )
+    return _prototype_page("tasks")
 
 
 @router.get("/tasks/{task_id}", response_class=HTMLResponse)
 def task_detail_page(task_id: int, request: Request, db: Database = Depends(database)) -> HTMLResponse:
     """渲染任务详情页。"""
-    task = db.fetch_one("SELECT t.*, m.file_name, m.path, m.media_info_json FROM processing_task t JOIN media_file m ON m.id=t.media_file_id WHERE t.id=?", (task_id,))
-    if not task:
-        return templates.TemplateResponse(
-            request=request,
-            name="error.html",
-            context={"message": "任务不存在"},
-            status_code=404,
-        )
-    transcript = db.fetch_one("SELECT * FROM transcript WHERE task_id=?", (task_id,))
-    segments = db.fetch_all("SELECT s.* FROM transcript_segment s JOIN transcript t ON t.id=s.transcript_id WHERE t.task_id=? ORDER BY s.sequence", (task_id,))
-    events = db.fetch_all("SELECT * FROM task_event WHERE task_id=? ORDER BY created_at", (task_id,))
-    return templates.TemplateResponse(
-        request=request,
-        name="task_detail.html",
-        context={"task": task, "transcript": transcript, "segments": segments, "events": events, "active": "tasks"},
-    )
+    return _prototype_page("task-detail", task_id)
 
 
 @router.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request) -> HTMLResponse:
     """渲染设置页。"""
-    return templates.TemplateResponse(
-        request=request,
-        name="settings.html",
-        context={"active": "settings"},
-    )
+    return _prototype_page("settings")

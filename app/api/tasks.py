@@ -24,6 +24,13 @@ class TaskInput(BaseModel):
     asrOptions: dict = Field(default_factory=dict)
 
 
+class BatchTaskInput(BaseModel):
+    """批量创建任务的参数。"""
+
+    mediaFileIds: list[int] = Field(min_length=1, max_length=500)
+    language: str = "auto"
+
+
 def _task(row) -> dict:
     """转换任务数据库行。"""
     return {"id": row["id"], "mediaFileId": row["media_file_id"], "fileName": row["file_name"], "path": row["path"], "status": row["status"], "stage": row["current_stage"], "progress": row["progress"], "message": row["message"], "requestedAi": bool(row["requested_ai"]), "language": row["language"], "error": {"code": row["error_code"], "message": row["error_message"], "detail": row["error_detail"], "retryable": bool(row["retryable"])} if row["error_code"] else None, "startedAt": row["started_at"], "finishedAt": row["finished_at"], "createdAt": row["created_at"], "updatedAt": row["updated_at"]}
@@ -51,6 +58,40 @@ def create_task(payload: TaskInput, db: Database = Depends(database)) -> dict:
     now = utc_now()
     task_id = db.execute("INSERT INTO processing_task (media_file_id, requested_ai, language, asr_options_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)", (payload.mediaFileId, int(payload.requestedAi), payload.language, json.dumps(payload.asrOptions), now, now))
     return {"id": task_id, "status": TaskStatus.QUEUED.value}
+
+
+@router.post("/batch", status_code=status.HTTP_202_ACCEPTED)
+def create_tasks(payload: BatchTaskInput, db: Database = Depends(database)) -> dict:
+    """将用户勾选且未处理的媒体文件批量加入转写队列。"""
+    media_ids = list(dict.fromkeys(payload.mediaFileIds))
+    placeholders = ",".join("?" for _ in media_ids)
+    rows = db.fetch_all(
+        f"SELECT id FROM media_file WHERE id IN ({placeholders}) ORDER BY id",
+        tuple(media_ids),
+    )
+    existing_ids = {row["id"] for row in rows}
+    missing_ids = [media_id for media_id in media_ids if media_id not in existing_ids]
+    if missing_ids:
+        raise HTTPException(404, f"媒体文件不存在：{missing_ids}")
+
+    now = utc_now()
+    created_ids: list[int] = []
+    skipped_ids: list[int] = []
+    with db.connection() as connection:
+        for media_id in media_ids:
+            task = connection.execute(
+                "SELECT id FROM processing_task WHERE media_file_id = ? LIMIT 1",
+                (media_id,),
+            ).fetchone()
+            if task:
+                skipped_ids.append(media_id)
+                continue
+            cursor = connection.execute(
+                "INSERT INTO processing_task (media_file_id, language, created_at, updated_at) VALUES (?, ?, ?, ?)",
+                (media_id, payload.language, now, now),
+            )
+            created_ids.append(cursor.lastrowid)
+    return {"created": len(created_ids), "taskIds": created_ids, "skippedMediaIds": skipped_ids}
 
 
 @router.get("/{task_id}")

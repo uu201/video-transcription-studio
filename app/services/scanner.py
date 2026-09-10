@@ -12,7 +12,7 @@ from app.domain.schemas import ScanResult
 
 
 class Scanner:
-    """递归发现支持的音视频文件。"""
+    """递归发现支持的音视频文件，仅建立索引，不直接创建转写任务。"""
 
     MEDIA_EXTENSIONS = {".mp4", ".mkv", ".mov", ".avi", ".webm", ".flv", ".wmv", ".m4v", ".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus", ".weba", ".wma"}
 
@@ -42,7 +42,7 @@ class Scanner:
             return False
 
     def scan(self, source_id: int) -> ScanResult:
-        """扫描指定源并为新版本创建排队任务。"""
+        """扫描指定源并保存新媒体，任务由用户勾选文件后创建。"""
         source = self.database.fetch_one("SELECT * FROM scan_source WHERE id = ?", (source_id,))
         if not source:
             raise ValueError("扫描源不存在")
@@ -70,8 +70,8 @@ class Scanner:
                     continue
                 now = utc_now()
                 media_id = self.database.execute("INSERT INTO media_file (scan_source_id, path, file_name, extension, size_bytes, modified_at, fingerprint, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (source_id, str(path), path.name, path.suffix.lower(), stat.st_size, str(stat.st_mtime), fingerprint, now, now))
-                self.database.execute("INSERT INTO processing_task (media_file_id, created_at, updated_at) VALUES (?, ?, ?)", (media_id, now, now))
                 result.created += 1
+                result.media_ids.append(media_id)
             except (OSError, ValueError) as exc:
                 result.failed += 1
                 result.errors.append(f"{path.name}: {exc}")

@@ -1,6 +1,6 @@
 server:
   host: 127.0.0.1
-  port: 8099
+  port: 8103
 database:
   path: data/video_content.db
 paths:

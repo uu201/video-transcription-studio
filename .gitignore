@@ -27,6 +27,7 @@ data/*.db-*
 data/logs/
 data/cache/
 data/results/
+data/models/*
 !data/cache/.gitkeep
 !data/results/.gitkeep
 !data/logs/.gitkeep
