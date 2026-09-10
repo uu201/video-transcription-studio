@@ -4,53 +4,9 @@
   const { ElMessage, ElMessageBox } = ElementPlus;
   const initial = window.__INITIAL_STATE__ || { tab: "overview", taskId: null };
 
-  // 将后端枚举转换为原型使用的英文小写状态。
-  const statusMap = { QUEUED: "pending", RUNNING: "processing", SUCCEEDED: "completed", FAILED: "failed", CANCELED: "cancelled" };
-  const reverseStatus = { pending: "QUEUED", processing: "RUNNING", completed: "SUCCEEDED", failed: "FAILED", cancelled: "CANCELED" };
-  const statusLabel = { pending: "待处理", processing: "处理中", completed: "已完成", failed: "处理失败", cancelled: "已取消" };
-
-  async function request(url, options) {
-    const response = await fetch(url, options);
-    const data = response.status === 204 ? null : await response.json();
-    if (!response.ok) throw new Error((data && (data.detail || data.message)) || "请求失败");
-    return data;
-  }
-
-  function formatTime(value) {
-    return value ? String(value).replace("T", " ").slice(0, 19) : "--";
-  }
-
-  function mapSource(item) {
-    return { ...item, path: item.rootPath, postAction: item.transferPolicy || "keep", lastScanAt: formatTime(item.updatedAt), scanning: false };
-  }
-
-  function mapTask(item) {
-    const status = statusMap[item.status] || String(item.status || "QUEUED").toLowerCase();
-    return {
-      ...item,
-      taskId: "TASK-" + String(item.id).padStart(4, "0"),
-      fileName: item.fileName || "未知媒体",
-      filePath: item.path || "--",
-      fileType: (item.fileName || "file").split(".").pop(),
-      status,
-      currentPhase: item.stage || item.message || statusLabel[status],
-      updatedAt: formatTime(item.updatedAt),
-      errorInfo: item.error ? { title: item.error.message, desc: item.error.detail || item.error.message, solution: item.error.retryable ? "检查环境后重试任务。" : "该任务不可重试。", cmd: "python -m pip install -r requirements.txt", traceback: item.error.detail || "" } : null,
-      pipeline: [],
-      transcript: null,
-      segments: [],
-    };
-  }
-
-  function makeEnvironment(data) {
-    const fallback = { python: {}, funasr: {}, ffmpeg: {}, ffprobe: {}, sqlite: {}, modelDir: {}, senseVoice: {}, vad: {}, cuda: {} };
-    (data.items || []).forEach((item) => {
-      const key = item.key === "database" ? "sqlite" : item.key === "modelDir" ? "modelDir" : item.key === "iic/SenseVoiceSmall" ? "senseVoice" : item.key.indexOf("speech_fsmn") >= 0 ? "vad" : item.key;
-      if (!fallback[key]) return;
-      fallback[key] = { ok: item.status === "ok", available: item.status === "ok", status: item.value, version: item.value, path: item.detail, device: item.value, size: "--", progress: item.status === "ok" ? 100 : 0 };
-    });
-    return fallback;
-  }
+  // 使用模块化的工具函数
+  const { formatTime, formatFileSize, mapSource, mapTask, makeEnvironment, statusLabel } = window.AppUtils;
+  const api = window.AppAPI;
 
   const app = createApp({
     setup() {
@@ -98,19 +54,19 @@
       async function loadEnvironment() {
         isEnvChecking.value = true;
         try {
-          const data = await request("/api/system/environment");
+          const data = await api.system.environment();
           environment.value = data; envData.value = makeEnvironment(data); envOverallReady.value = data.overall === "ok"; envLastCheckTime.value = formatTime(data.checkedAt);
         } catch (error) { ElMessage.error(error.message); } finally { isEnvChecking.value = false; }
       }
 
-      async function loadSources() { scanSources.value = (await request("/api/scan-sources")).map(mapSource); }
-      async function loadTasks() { tasks.value = (await request("/api/tasks?limit=500")).map(mapTask); }
+      async function loadSources() { scanSources.value = (await api.sources.list()).map(mapSource); }
+      async function loadTasks() { tasks.value = (await api.tasks.list()).map(mapTask); }
       async function loadTaskDetail(task) {
-        const data = await request("/api/tasks/" + task.id);
+        const data = await api.tasks.get(task.id);
         const target = mapTask(data);
         target.pipeline = (data.events || []).map((event) => ({ name: event.stage, status: event.level === "ERROR" ? "error" : "done", time: formatTime(event.createdAt), desc: event.message }));
-        try { target.transcript = await request("/api/tasks/" + task.id + "/transcript"); } catch (_) { target.transcript = null; }
-        try { target.segments = (await request("/api/tasks/" + task.id + "/segments")).map((segment) => ({ ...segment, id: segment.sequence, start: Number(segment.start || 0).toFixed(3), end: Number(segment.end || 0).toFixed(3), speaker: segment.speaker || "--", confidence: segment.confidence || 0 })); } catch (_) { target.segments = []; }
+        try { target.transcript = await api.tasks.transcript(task.id); } catch (_) { target.transcript = null; }
+        try { target.segments = (await api.tasks.segments(task.id)).map((segment) => ({ ...segment, id: segment.sequence, start: Number(segment.start || 0).toFixed(3), end: Number(segment.end || 0).toFixed(3), speaker: segment.speaker || "--", confidence: segment.confidence || 0 })); } catch (_) { target.segments = []; }
         const index = tasks.value.findIndex((item) => item.id === task.id); if (index >= 0) tasks.value[index] = target;
         currentTask.value = target;
       }
@@ -198,11 +154,16 @@
       function refreshTaskList() { loadTasks().then(() => ElMessage.success("任务队列已刷新")); }
 
       function connectSocket() {
-        if (!window.WebSocket) return;
-        const socket = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws/tasks");
-        socket.onopen = () => ElMessage.success("实时任务通道已连接");
-        socket.onmessage = (event) => { let payload; try { payload = JSON.parse(event.data); } catch (_) { return; } if (["task.updated", "task.completed", "task.failed"].includes(payload.type)) { loadTasks(); if (currentTaskId.value && Number(currentTaskId.value) === Number(payload.taskId)) { const task = tasks.value.find((item) => item.id === Number(payload.taskId)); if (task) loadTaskDetail(task); } } };
-        socket.onclose = () => setTimeout(connectSocket, 2500);
+        const socket = new window.TaskSocket((payload) => {
+          if (["task.updated", "task.completed", "task.failed"].includes(payload.type)) {
+            loadTasks();
+            if (currentTaskId.value && Number(currentTaskId.value) === Number(payload.taskId)) {
+              const task = tasks.value.find((item) => item.id === Number(payload.taskId));
+              if (task) loadTaskDetail(task);
+            }
+          }
+        });
+        socket.connect();
       }
 
       onMounted(async () => {
@@ -212,7 +173,7 @@
         const savedAi = JSON.parse(localStorage.getItem("transcriber_ai_config") || "null");
         if (savedAi) aiConfig.value = { ...aiConfig.value, ...savedAi };
         try {
-          const info = await request("/api/system/info");
+          const info = await api.system.info();
           settings.value = { ...settings.value, asrDevice: info.asrDevice || settings.value.asrDevice, ffmpegPath: info.ffmpeg || settings.value.ffmpegPath, ffprobePath: info.ffprobe || settings.value.ffprobePath, modelDirPath: info.modelDir || settings.value.modelDirPath };
         } catch (_) { /* 系统信息不可用时保留本地配置 */ }
         await refreshAll();

@@ -39,9 +39,13 @@ class Database:
 
     def migrate(self) -> None:
         """执行内置的幂等初始迁移。"""
-        schema = (Path(__file__).parent / "migrations" / "001_initial_schema.sql").read_text(encoding="utf-8")
+        migrations_dir = Path(__file__).parent / "migrations"
+        migration_files = sorted(migrations_dir.glob("*.sql"))
+
         with self.connection() as connection:
-            connection.executescript(schema)
+            for migration_file in migration_files:
+                schema = migration_file.read_text(encoding="utf-8")
+                connection.executescript(schema)
 
     def fetch_all(self, sql: str, params: tuple[Any, ...] = ()) -> list[sqlite3.Row]:
         """查询多行数据。"""

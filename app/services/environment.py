@@ -6,6 +6,7 @@ import platform
 import os
 import subprocess
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,39 @@ from app.config import Settings
 from app.db.database import Database
 from app.services.asr.sensevoice_provider import SenseVoiceProvider
 from app.services.media_toolchain import MediaToolchain
+
+
+class EnvironmentCache:
+    """环境检测结果缓存，避免频繁检测。"""
+
+    _cache: dict[str, Any] | None = None
+    _cached_at: datetime | None = None
+    _ttl_seconds: int = 300  # 默认 5 分钟缓存
+
+    @classmethod
+    def get(cls, ttl_seconds: int = 300) -> dict[str, Any] | None:
+        """获取缓存的环境检测结果。"""
+        cls._ttl_seconds = ttl_seconds
+        if cls._cache is None or cls._cached_at is None:
+            return None
+
+        elapsed = (datetime.now() - cls._cached_at).total_seconds()
+        if elapsed > cls._ttl_seconds:
+            return None
+
+        return cls._cache
+
+    @classmethod
+    def set(cls, result: dict[str, Any]) -> None:
+        """缓存环境检测结果。"""
+        cls._cache = result
+        cls._cached_at = datetime.now()
+
+    @classmethod
+    def clear(cls) -> None:
+        """清除缓存，强制重新检测。"""
+        cls._cache = None
+        cls._cached_at = None
 
 
 class EnvironmentChecker:
@@ -50,8 +84,14 @@ class EnvironmentChecker:
         except (OSError, subprocess.SubprocessError) as exc:
             return False, str(exc)
 
-    def check(self) -> dict[str, Any]:
+    def check(self, use_cache: bool = True) -> dict[str, Any]:
         """返回适合首页展示的环境检测结果。"""
+        # 尝试从缓存获取
+        if use_cache:
+            cached = EnvironmentCache.get(ttl_seconds=300)
+            if cached is not None:
+                return cached
+
         items: list[dict[str, Any]] = []
 
         items.append({"key": "python", "label": "Python 运行时", "status": "ok", "value": platform.python_version(), "detail": sys.executable})
@@ -117,4 +157,8 @@ class EnvironmentChecker:
 
         required = {item["status"] for item in items if item["key"] != "cuda"}
         overall = "ok" if required == {"ok"} else "attention"
-        return {"overall": overall, "checkedAt": __import__("datetime").datetime.now().astimezone().isoformat(timespec="seconds"), "items": items}
+        result = {"overall": overall, "checkedAt": __import__("datetime").datetime.now().astimezone().isoformat(timespec="seconds"), "items": items}
+
+        # 缓存检测结果
+        EnvironmentCache.set(result)
+        return result

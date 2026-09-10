@@ -21,11 +21,31 @@ class Scanner:
 
     @staticmethod
     def fingerprint(path: Path, stat: os.stat_result) -> str:
-        """使用大小、修改时间和文件头生成稳定指纹，避免重复读取大文件。"""
+        """快速指纹算法：使用文件元数据 + 部分内容采样，避免读取大文件全部内容。"""
         digest = hashlib.sha256()
-        digest.update(f"{stat.st_size}:{stat.st_mtime_ns}".encode())
-        with path.open("rb") as handle:
-            digest.update(handle.read(1024 * 1024))
+        # 1. 文件元数据（文件名、大小、修改时间）
+        digest.update(f"{path.name}:{stat.st_size}:{stat.st_mtime_ns}".encode())
+
+        # 2. 对于大文件，只采样头部和尾部各 64KB
+        if stat.st_size > 1024 * 1024:  # > 1MB
+            try:
+                with path.open("rb") as handle:
+                    # 读取前 64KB
+                    digest.update(handle.read(64 * 1024))
+                    # 如果文件足够大，跳到末尾读取后 64KB
+                    if stat.st_size > 128 * 1024:
+                        handle.seek(-64 * 1024, 2)
+                        digest.update(handle.read(64 * 1024))
+            except (OSError, IOError):
+                pass  # 文件不可读时仅使用元数据
+        else:
+            # 小文件直接读取全部内容
+            try:
+                with path.open("rb") as handle:
+                    digest.update(handle.read())
+            except (OSError, IOError):
+                pass
+
         return digest.hexdigest()
 
     @staticmethod
