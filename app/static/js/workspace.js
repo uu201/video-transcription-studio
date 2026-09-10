@@ -7,6 +7,7 @@
   // 使用模块化的工具函数
   const { formatTime, formatFileSize, mapSource, mapTask, makeEnvironment, statusLabel } = window.AppUtils;
   const api = window.AppAPI;
+  const { showError, showSuccess, showWarning, showInfo, confirmAction, confirmBatchAction, withProgress, throttle, debounce } = window.UIHelpers;
 
   const app = createApp({
     setup() {
@@ -56,11 +57,24 @@
         try {
           const data = await api.system.environment();
           environment.value = data; envData.value = makeEnvironment(data); envOverallReady.value = data.overall === "ok"; envLastCheckTime.value = formatTime(data.checkedAt);
-        } catch (error) { ElMessage.error(error.message); } finally { isEnvChecking.value = false; }
+        } catch (error) { showError(error, '环境检测失败'); } finally { isEnvChecking.value = false; }
       }
 
-      async function loadSources() { scanSources.value = (await api.sources.list()).map(mapSource); }
-      async function loadTasks() { tasks.value = (await api.tasks.list()).map(mapTask); }
+      async function loadSources() {
+        try {
+          scanSources.value = (await api.sources.list()).map(mapSource);
+        } catch (error) {
+          showError(error, '加载扫描源失败');
+        }
+      }
+
+      async function loadTasks() {
+        try {
+          tasks.value = (await api.tasks.list()).map(mapTask);
+        } catch (error) {
+          showError(error, '加载任务列表失败');
+        }
+      }
       async function loadTaskDetail(task) {
         const data = await api.tasks.get(task.id);
         const target = mapTask(data);
