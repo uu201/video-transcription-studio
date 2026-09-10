@@ -1,0 +1,33 @@
+server:
+  host: 127.0.0.1
+  port: 8099
+database:
+  path: data/video_content.db
+paths:
+  result_dir: data/results
+  cache_dir: data/cache
+  model_dir: data/models
+  log_dir: data/logs
+worker:
+  poll_interval_seconds: 2
+  max_concurrency: 1
+  stale_task_timeout_seconds: 1800
+media:
+  ffmpeg:
+    bundled: true
+    external_dir: null
+asr:
+  provider: sensevoice
+  model: iic/SenseVoiceSmall
+  device: cpu
+  language: auto
+  use_itn: true
+  batch_size_s: 30
+  merge_vad: true
+  merge_length_s: 15
+  max_single_segment_time_ms: 30000
+  disable_pbar: true
+  disable_log: true
+  disable_update: true
+ai:
+  enabled: false

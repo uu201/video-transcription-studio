@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}视频转文案工作台{% endblock %}</title>
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">↗</span><div><strong>文案工场</strong><small>LOCAL CONTENT LAB</small></div></div>
+      <nav class="nav">
+        <a class="{% if active == 'dashboard' %}active{% endif %}" href="/"><span>01</span>总览</a>
+        <a class="{% if active == 'sources' %}active{% endif %}" href="/scan-sources"><span>02</span>扫描源</a>
+        <a class="{% if active == 'tasks' %}active{% endif %}" href="/tasks"><span>03</span>处理任务</a>
+        <a class="{% if active == 'settings' %}active{% endif %}" href="/settings"><span>04</span>设置</a>
+      </nav>
+      <div class="sidebar-note"><span class="pulse"></span>本地引擎在线<br><small>数据保存在当前设备</small></div>
+    </aside>
+    <main class="main-content">
+      <header class="topbar"><div class="breadcrumb">内容处理 / {% block breadcrumb %}总览{% endblock %}</div><div class="topbar-meta">SENSEVOICE · CPU <span class="status-dot"></span></div></header>
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+  <div id="toast" class="toast" role="status"></div>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

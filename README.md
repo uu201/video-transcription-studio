@@ -5,6 +5,21 @@
 
 当前项目正在从独立 CLI 演进为本地视频内容处理平台，产品范围、系统架构和开发步骤已经整理到 `doc/`。
 
+## 启动本地平台
+
+使用 Python 3.10/3.11（当前代码也兼容 Python 3.13）创建虚拟环境并安装依赖：
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+python start.py
+```
+
+浏览器打开 <http://127.0.0.1:8000>。首次启动会创建 `data/video_content.db`；在“扫描源”页面配置本地目录后，Worker 会在后台创建任务。正式转写前请把对应平台的 `ffmpeg` 和 `ffprobe` 放入 `runtime/ffmpeg/`，或使用 `VIDEO_TEXT_FFMPEG_DIR` 指定开发目录。
+
+应用首页、扫描源、任务详情和导出接口已经可运行；AI Provider 与文件归档保留了独立接口，默认不会阻断 ASR 主链路。
+
 ## 架构文档
 
 - [产品需求文档](<doc/视频文案提取与 AI 内容分析平台——需求文档.md>)

@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}设置 · 文案工场{% endblock %}
+{% block breadcrumb %}设置{% endblock %}
+{% block content %}
+<section class="page-head reveal"><div><p class="eyebrow">SYSTEM SETTINGS / 04</p><h1>设置</h1><p class="lede">当前版本优先保证本地转写链路稳定，AI Provider 接口已预留。</p></div></section>
+<section class="settings-grid reveal delay-1"><div class="panel"><p class="eyebrow">ASR ENGINE</p><h2>SenseVoice</h2><dl class="spec-list"><div><dt>模型</dt><dd>iic/SenseVoiceSmall</dd></div><div><dt>设备</dt><dd>CPU · 单并发</dd></div><div><dt>VAD</dt><dd>fsmn-vad</dd></div><div><dt>输出</dt><dd>TXT / JSON / SRT</dd></div></dl></div><div class="panel"><p class="eyebrow">MEDIA TOOLCHAIN</p><h2>FFmpeg</h2><p class="muted">应用从 runtime/ffmpeg 读取内置工具。开发环境可通过环境变量 VIDEO_TEXT_FFMPEG_DIR 覆盖。</p><button class="button button-ghost" onclick="checkTools()">检查媒体工具 <span>→</span></button><div id="tool-result" class="tool-result"></div></div><div class="panel disabled-panel"><p class="eyebrow">AI PROVIDER</p><h2>OpenAI Compatible</h2><p class="muted">AI 总结、大纲和金句接口已预留，默认关闭，不影响转写主链路。</p><span class="tag">未启用</span></div></section>
+{% endblock %}

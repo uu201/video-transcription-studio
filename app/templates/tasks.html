@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}处理任务 · 文案工场{% endblock %}
+{% block breadcrumb %}处理任务{% endblock %}
+{% block content %}
+<section class="page-head reveal"><div><p class="eyebrow">PROCESSING QUEUE / 03</p><h1>处理任务</h1><p class="lede">Worker 在后台运行，页面每 3 秒同步一次状态。</p></div><button class="button button-ghost" onclick="window.location.reload()">刷新队列 <span>↻</span></button></section>
+<section class="section-block reveal delay-1"><div class="filter-bar"><span class="filter-label">全部任务 · {{ tasks|length }}</span><span class="live-label"><span class="pulse"></span>实时同步</span></div><div class="task-list" id="task-list">{% for item in tasks %}<a class="task-row" href="/tasks/{{ item.id }}"><div class="task-leading"><span class="task-id">#{{ '%04d'|format(item.id) }}</span><div><strong>{{ item.file_name }}</strong><small>{{ item.created_at|replace('T',' ') }}</small></div></div><div class="task-stage"><span class="tag tag-{{ item.status|lower }}">{{ {'QUEUED':'等待处理','RUNNING':'处理中','SUCCEEDED':'已完成','FAILED':'处理失败','CANCELED':'已取消'}.get(item.status, item.status) }}</span><small>{{ item.message }}</small></div><div class="task-progress"><div class="progress"><i style="width:{{ item.progress }}%"></i></div><small>{{ item.progress }}%</small></div><span class="row-arrow">↗</span></a>{% else %}<div class="empty">扫描源后会在这里出现任务。</div>{% endfor %}</div></section>
+<script>setTimeout(function(){ if(document.visibilityState==='visible'){ window.location.reload(); } }, 3000);</script>
+{% endblock %}

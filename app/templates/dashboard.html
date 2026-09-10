@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}总览 · 文案工场{% endblock %}
+{% block content %}
+<section class="page-head reveal"><div><p class="eyebrow">OPERATIONS / 01</p><h1>内容处理总览</h1><p class="lede">把本地素材变成可检索、可编辑、可复用的文案资产。</p></div><a class="button button-primary" href="/scan-sources">配置扫描源 <span>→</span></a></section>
+<section class="metric-grid reveal delay-1">
+  <div class="metric"><span>待处理</span><strong>{{ counts.get('QUEUED', 0) }}</strong><small>QUEUED</small></div>
+  <div class="metric accent"><span>处理中</span><strong>{{ counts.get('RUNNING', 0) }}</strong><small>RUNNING</small></div>
+  <div class="metric"><span>已完成</span><strong>{{ counts.get('SUCCEEDED', 0) }}</strong><small>SUCCEEDED</small></div>
+  <div class="metric danger"><span>失败</span><strong>{{ counts.get('FAILED', 0) }}</strong><small>FAILED</small></div>
+</section>
+<section class="section-block reveal delay-2"><div class="section-title"><div><p class="eyebrow">RECENT RUNS</p><h2>最近任务</h2></div><a class="text-link" href="/tasks">查看全部 →</a></div>
+  <div class="table-wrap"><table><thead><tr><th>素材</th><th>状态</th><th>进度</th><th>创建时间</th><th></th></tr></thead><tbody>
+  {% for item in recent %}<tr><td><span class="file-icon">▧</span><strong>{{ item.file_name }}</strong></td><td><span class="tag tag-{{ item.status|lower }}">{{ {'QUEUED':'等待处理','RUNNING':'处理中','SUCCEEDED':'已完成','FAILED':'处理失败','CANCELED':'已取消'}.get(item.status, item.status) }}</span></td><td><div class="progress"><i style="width:{{ item.progress }}%"></i></div><small>{{ item.progress }}%</small></td><td class="muted">{{ item.created_at|replace('T',' ') }}</td><td><a class="row-arrow" href="/tasks/{{ item.id }}">↗</a></td></tr>{% else %}<tr><td colspan="5" class="empty">还没有任务，从扫描源开始。</td></tr>{% endfor %}
+  </tbody></table></div>
+</section>
+<section class="quick-grid reveal delay-3"><a href="/scan-sources" class="quick-card"><span class="quick-num">02</span><h3>扫描本地素材</h3><p>递归发现视频与音频，自动创建处理任务。</p><span class="quick-arrow">↗</span></a><a href="/tasks" class="quick-card"><span class="quick-num">03</span><h3>查看处理队列</h3><p>追踪阶段、进度、错误和可重试任务。</p><span class="quick-arrow">↗</span></a></section>
+{% endblock %}

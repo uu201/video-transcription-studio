@@ -22,6 +22,15 @@ ENV/
 # Local IDE and editor settings
 .idea/
 .vscode/
+data/*.db
+data/*.db-*
+data/logs/
+data/cache/
+data/results/
+!data/cache/.gitkeep
+!data/results/.gitkeep
+!data/logs/.gitkeep
+!data/models/.gitkeep
 *.swp
 *.swo
 
