@@ -1,43 +1,77 @@
-# Generated output
-/output/
-
-# Python cache and build artifacts
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
-*.egg-info/
-.pytest_cache/
-.mypy_cache/
-.coverage
-htmlcov/
-build/
-dist/
-
-# Local virtual environments
-.venv/
-venv/
+*.so
+.Python
 env/
+venv/
 ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+output/
 
-# Local IDE and editor settings
-.idea/
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+.DS_Store
+*.local
+
+# Vite
+frontend/dist/
+app/static/dist/
+*.local
+
+# Editor
 .vscode/
-data/*.db
-data/*.db-*
-data/logs/
-data/cache/
-data/results/
-data/models/*
-!data/cache/.gitkeep
-!data/results/.gitkeep
-!data/logs/.gitkeep
-!data/models/.gitkeep
+.idea/
 *.swp
 *.swo
+*~
 
-# Local environment and OS metadata
-.env
-.env.*
-!.env.example
+# Database
+*.db
+*.sqlite
+*.sqlite3
+data/
+
+# Models
+models/
+*.pth
+*.bin
+*.onnx
+
+# Logs
+*.log
+logs/
+
+# OS
 .DS_Store
 Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Temporary
+tmp/
+temp/
+*.tmp

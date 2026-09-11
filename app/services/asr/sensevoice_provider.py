@@ -25,9 +25,14 @@ class SenseVoiceProvider:
         """首次识别时加载模型，避免首页启动依赖模型包。"""
         if self._model is not None:
             return self._model
+
         # 将模型缓存固定到项目目录，避免模型散落在用户目录且难以备份。
-        os.environ.setdefault("MODELSCOPE_CACHE", str(self.settings.model_dir))
-        os.environ.setdefault("HF_HOME", str(self.settings.model_dir / "huggingface"))
+        # 关键：设置环境变量必须在导入 funasr 之前
+        cache_dir = str(self.settings.model_dir)
+        os.environ["MODELSCOPE_CACHE"] = cache_dir
+        os.environ["HF_HOME"] = str(self.settings.model_dir / "huggingface")
+        os.environ["MODELSCOPE_MODULES_CACHE"] = cache_dir
+
         try:
             from funasr import AutoModel
         except ImportError as exc:
@@ -38,12 +43,26 @@ class SenseVoiceProvider:
                 True,
                 "请在启动服务的同一个虚拟环境中执行 python -m pip install -r requirements.txt，然后重试任务",
             ) from exc
+
         try:
+            # 检查本地模型路径
+            local_model_path = self.settings.model_dir / "iic" / "SenseVoiceSmall"
+
+            # 如果本地模型存在，直接使用本地路径，避免重新下载
+            if local_model_path.exists() and (local_model_path / "model.pt").exists():
+                model_path = str(local_model_path)
+                LOGGER.info(f"使用本地模型: {model_path}")
+            else:
+                # 否则使用模型 ID，会自动下载
+                model_path = self.settings.asr_model
+                LOGGER.info(f"模型不存在，将从 ModelScope 下载: {model_path}")
+
             # 第三方模型库的详细下载日志不直接刷屏，阶段进度由平台统一显示。
             for logger_name in ("funasr", "modelscope", "modelscope.hub", "huggingface_hub"):
                 logging.getLogger(logger_name).setLevel(logging.WARNING)
+
             self._model = AutoModel(
-                model=self.settings.asr_model,
+                model=model_path,  # 使用本地路径或模型 ID
                 trust_remote_code=True,
                 vad_model="fsmn-vad",
                 vad_kwargs={"max_single_segment_time": self.settings.asr_max_segment_ms},
@@ -52,9 +71,88 @@ class SenseVoiceProvider:
                 disable_log=True,
                 disable_update=True,
             )
+
+            # 模型加载成功后，检查并修复可能的嵌套 models 目录问题
+            self._fix_nested_models_directory()
         except Exception as exc:
             raise AppError("ASR_MODEL_LOAD_FAILED", "语音识别模型加载失败", repr(exc), True, "检查模型目录、网络或切换到 CPU 后重试") from exc
         return self._model
+
+    def _fix_nested_models_directory(self) -> None:
+        """修复 ModelScope 可能创建的嵌套 models 目录。
+
+        某些版本的 ModelScope 会在 MODELSCOPE_CACHE 下创建 models/ 子目录，
+        导致路径变成 data/models/models/iic/...，这里自动修复这个问题。
+        """
+        nested_models_dir = self.settings.model_dir / "models"
+        if not nested_models_dir.exists():
+            return
+
+        # 检查是否有 iic 目录在嵌套的 models 下
+        nested_iic_dir = nested_models_dir / "iic"
+        target_iic_dir = self.settings.model_dir / "iic"
+
+        if not nested_iic_dir.exists():
+            # 检查临时目录
+            temp_dir = nested_models_dir / "._____temp" / "iic"
+            if temp_dir.exists():
+                LOGGER.info(f"检测到临时下载目录: {temp_dir}")
+            return
+
+        # 如果目标已存在，需要合并而不是替换
+        if target_iic_dir.exists():
+            LOGGER.info("目标模型目录已存在，正在合并...")
+            try:
+                import shutil
+                # 遍历嵌套目录中的所有内容
+                for item in nested_iic_dir.rglob("*"):
+                    if item.is_file():
+                        # 计算相对路径
+                        relative_path = item.relative_to(nested_iic_dir)
+                        target_path = target_iic_dir / relative_path
+
+                        # 如果目标文件不存在或大小不同，则复制
+                        if not target_path.exists() or target_path.stat().st_size != item.stat().st_size:
+                            target_path.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copy2(str(item), str(target_path))
+                            LOGGER.info(f"已复制: {relative_path}")
+
+                # 删除嵌套目录
+                shutil.rmtree(str(nested_iic_dir))
+                LOGGER.info(f"已删除嵌套的 iic 目录: {nested_iic_dir}")
+
+            except Exception as e:
+                LOGGER.warning(f"合并模型目录失败: {e}")
+        else:
+            # 目标不存在，直接移动
+            try:
+                import shutil
+                LOGGER.info(f"检测到嵌套模型目录，正在修复: {nested_iic_dir} -> {target_iic_dir}")
+                shutil.move(str(nested_iic_dir), str(target_iic_dir))
+                LOGGER.info("模型目录已移动到正确位置")
+            except Exception as e:
+                LOGGER.warning(f"移动模型目录失败: {e}")
+                return
+
+        # 检查并清理嵌套 models 目录
+        try:
+            # 删除临时目录
+            temp_dir = nested_models_dir / "._____temp"
+            if temp_dir.exists():
+                import shutil
+                shutil.rmtree(str(temp_dir))
+                LOGGER.info(f"已删除临时目录: {temp_dir}")
+
+            # 如果 models 目录为空或只剩临时文件，删除它
+            if nested_models_dir.exists():
+                remaining_items = list(nested_models_dir.iterdir())
+                if not remaining_items:
+                    nested_models_dir.rmdir()
+                    LOGGER.info(f"已删除空的嵌套目录: {nested_models_dir}")
+                else:
+                    LOGGER.info(f"嵌套目录还有其他内容，保留: {[item.name for item in remaining_items]}")
+        except Exception as e:
+            LOGGER.warning(f"清理嵌套目录失败，但不影响使用: {e}")
 
     @staticmethod
     def dependency_status() -> dict[str, Any]:

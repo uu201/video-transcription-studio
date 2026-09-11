@@ -1,0 +1,82 @@
+import axios from 'axios'
+
+const request = axios.create({
+  baseURL: '/api',
+  timeout: 30000
+})
+
+request.interceptors.response.use(
+  response => response.data,
+  error => {
+    console.error('API Error:', error)
+    return Promise.reject(error)
+  }
+)
+
+export default {
+  // 系统信息
+  getSystemInfo() {
+    return request.get('/system/info')
+  },
+
+  getEnvironment(force = false) {
+    return request.get('/system/environment', { params: { force } })
+  },
+
+  checkMediaTools() {
+    return request.post('/system/check-media-tools')
+  },
+
+  // 扫描源
+  getSources() {
+    return request.get('/scan-sources')
+  },
+
+  createSource(data) {
+    return request.post('/scan-sources', data)
+  },
+
+  updateSource(id, data) {
+    return request.put(`/scan-sources/${id}`, data)
+  },
+
+  deleteSource(id) {
+    return request.delete(`/scan-sources/${id}`)
+  },
+
+  scanSource(id) {
+    return request.post(`/scan-sources/${id}/scan`)
+  },
+
+  // 任务
+  getTasks(params) {
+    return request.get('/tasks', { params })
+  },
+
+  getTaskDetail(id) {
+    return request.get(`/tasks/${id}`)
+  },
+
+  createTasks(data) {
+    return request.post('/tasks/batch', data)
+  },
+
+  retryTask(id) {
+    return request.post(`/tasks/${id}/retry`)
+  },
+
+  cancelTask(id) {
+    return request.post(`/tasks/${id}/cancel`)
+  },
+
+  deleteTask(id) {
+    return request.delete(`/tasks/${id}`)
+  },
+
+  // 导出
+  exportTranscript(taskId, format) {
+    return request.get(`/exports/${taskId}/${format}`, {
+      responseType: 'blob'
+    })
+  }
+}

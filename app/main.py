@@ -1,4 +1,4 @@
-"""FastAPI 应用入口。"""
+"""更新后的 FastAPI 应用入口，支持 Vite 构建的前端。"""
 
 from __future__ import annotations
 
@@ -6,9 +6,10 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi import WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from app.api.exports import router as exports_router
 from app.api.analyses import router as analyses_router
@@ -53,9 +54,20 @@ def create_app() -> FastAPI:
     application.state.scanner = scanner
     application.state.worker = worker_pool
     application.state.event_hub = event_hub
+
+    # 挂载静态文件
     static_dir = Path(__file__).parent / "static"
-    application.mount("/static", StaticFiles(directory=static_dir), name="static")
-    application.include_router(web_router)
+
+    # Vite 构建产物
+    dist_dir = static_dir / "dist"
+    if dist_dir.exists():
+        application.mount("/assets", StaticFiles(directory=dist_dir / "assets"), name="assets")
+
+    # 传统静态文件（如果需要）
+    if (static_dir / "js").exists():
+        application.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+    # API 路由
     application.include_router(sources_router)
     application.include_router(tasks_router)
     application.include_router(exports_router)
@@ -73,9 +85,11 @@ def create_app() -> FastAPI:
         return {"status": "ok", "database": "ok"}
 
     @application.get("/api/system/info", tags=["系统"])
-    def system_info() -> dict:
+    def system_info(response: Response) -> dict:
         """返回非敏感运行信息。"""
         from app.services.asr.sensevoice_provider import SenseVoiceProvider
+        # 设置缓存头：10 分钟
+        response.headers["Cache-Control"] = "public, max-age=600"
         return {
             "python": __import__("sys").version.split()[0],
             "root": str(settings.root_dir),
@@ -86,20 +100,26 @@ def create_app() -> FastAPI:
         }
 
     @application.post("/api/system/check-media-tools", tags=["系统"])
-    def check_media_tools() -> dict:
+    def check_media_tools(response: Response) -> dict:
         """检查应用内 FFmpeg。"""
         from app.services.media_toolchain import MediaToolchain
         try:
             toolchain = MediaToolchain.from_app_root(settings)
             toolchain.check()
-            return {"available": True, "ffmpeg": toolchain.ffmpeg_path(), "ffprobe": toolchain.ffprobe_path()}
+            result = {"available": True, "ffmpeg": toolchain.ffmpeg_path(), "ffprobe": toolchain.ffprobe_path()}
+            response.headers["Cache-Control"] = "public, max-age=300"
+            return result
         except Exception as exc:
             return {"available": False, "message": str(exc)}
 
     @application.get("/api/system/environment", tags=["系统"])
-    def environment() -> dict:
+    def environment(response: Response, force: bool = False) -> dict:
         """检测首页展示的本地开发与运行环境。"""
-        return EnvironmentChecker(settings, database).check()
+        result = EnvironmentChecker(settings, database).check(use_cache=not force)
+        # 设置缓存头：5 分钟
+        response.headers["Cache-Control"] = "public, max-age=300"
+        response.headers["X-Cache-Status"] = "HIT" if not force else "MISS"
+        return result
 
     @application.websocket("/ws/tasks")
     async def task_events(websocket: WebSocket) -> None:
@@ -120,6 +140,25 @@ def create_app() -> FastAPI:
             pass
         finally:
             event_hub.unsubscribe(subscriber)
+
+    # 前端路由 - 返回 index.html（用于 Vue Router history 模式）
+    @application.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        """为 SPA 提供前端入口，支持 Vue Router history 模式。"""
+        # API 路由已经被处理，这里只处理前端路由
+        if full_path.startswith("api/") or full_path.startswith("ws/"):
+            return {"error": "Not found"}, 404
+
+        index_file = dist_dir / "index.html"
+        if index_file.exists():
+            return FileResponse(index_file)
+
+        # 如果 dist 不存在，尝试返回旧版模板
+        old_template = Path(__file__).parent / "templates" / "workspace.html"
+        if old_template.exists():
+            return FileResponse(old_template)
+
+        return {"error": "Frontend not built. Run: cd frontend && npm run build"}
 
     return application
 

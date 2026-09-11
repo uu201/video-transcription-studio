@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 
 from app.api.dependencies import database, scanner
@@ -32,8 +32,9 @@ def _item(row) -> dict:
 
 
 @router.get("")
-def list_sources(db: Database = Depends(database)) -> list[dict]:
+def list_sources(response: Response, db: Database = Depends(database)) -> list[dict]:
     """列出全部扫描源。"""
+    response.headers["Cache-Control"] = "public, max-age=30"
     return [_item(row) for row in db.fetch_all("SELECT * FROM scan_source ORDER BY id DESC")]
 
 
@@ -87,7 +88,55 @@ def scan_source(source_id: int, db: Database = Depends(database), scan_service: 
     """扫描目录并返回可供用户勾选的媒体文件。"""
     if not db.fetch_one("SELECT id FROM scan_source WHERE id = ?", (source_id,)):
         raise HTTPException(404, "扫描源不存在")
+
+    # 执行扫描
     result = scan_service.scan(source_id)
+
+    # 获取该扫描源的所有媒体文件（包括已处理的）
+    sql = """
+        SELECT m.id, m.file_name, m.path, m.extension, m.size_bytes, m.modified_at,
+               (SELECT COUNT(*) FROM processing_task t WHERE t.media_file_id = m.id) AS task_count,
+               (SELECT t.status FROM processing_task t WHERE t.media_file_id = m.id ORDER BY t.id DESC LIMIT 1) AS latest_status
+        FROM media_file m
+        WHERE m.scan_source_id = ?
+        ORDER BY m.updated_at DESC, m.id DESC
+    """
+    rows = db.fetch_all(sql, (source_id,))
+
+    # 格式化文件信息
+    files = []
+    for row in rows:
+        # 格式化文件大小
+        size_bytes = row["size_bytes"]
+        if size_bytes < 1024:
+            size_display = f"{size_bytes} B"
+        elif size_bytes < 1024 * 1024:
+            size_display = f"{size_bytes / 1024:.1f} KB"
+        elif size_bytes < 1024 * 1024 * 1024:
+            size_display = f"{size_bytes / (1024 * 1024):.1f} MB"
+        else:
+            size_display = f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"
+
+        # 判断文件是否可选（未处理或处理失败的可以重新处理）
+        task_count = row["task_count"] or 0
+        latest_status = row["latest_status"]
+        is_new = row["id"] in result.media_ids
+        can_select = is_new or latest_status in (None, 'failed', 'cancelled')
+
+        files.append({
+            "id": row["id"],
+            "file_name": row["file_name"],
+            "path": row["path"],
+            "extension": row["extension"],
+            "size_bytes": size_bytes,
+            "size_display": size_display,
+            "modified_at": row["modified_at"],
+            "task_count": task_count,
+            "latest_status": latest_status,
+            "is_new": is_new,
+            "can_select": can_select
+        })
+
     return {
         "discovered": result.discovered,
         "created": result.created,
@@ -95,6 +144,7 @@ def scan_source(source_id: int, db: Database = Depends(database), scan_service: 
         "failed": result.failed,
         "errors": result.errors,
         "newMediaIds": result.media_ids,
+        "files": files
     }
 
 

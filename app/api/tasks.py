@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 
 from app.api.dependencies import database
@@ -40,8 +40,10 @@ TASK_QUERY = "SELECT t.*, m.file_name, m.path FROM processing_task t JOIN media_
 
 
 @router.get("")
-def list_tasks(status_filter: str | None = Query(default=None, alias="status"), limit: int = Query(default=100, ge=1, le=500), db: Database = Depends(database)) -> list[dict]:
+def list_tasks(response: Response, status_filter: str | None = Query(default=None, alias="status"), limit: int = Query(default=100, ge=1, le=500), db: Database = Depends(database)) -> list[dict]:
     """分页返回任务。"""
+    # 任务列表缓存 3 秒，因为状态会频繁变化
+    response.headers["Cache-Control"] = "public, max-age=3"
     if status_filter:
         rows = db.fetch_all(TASK_QUERY + " WHERE t.status = ? ORDER BY t.created_at DESC LIMIT ?", (status_filter, limit))
     else:
