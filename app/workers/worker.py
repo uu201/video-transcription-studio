@@ -33,6 +33,8 @@ class TaskWorkerPool:
         if self.workers:
             return
 
+        self._recover_interrupted_tasks()
+
         # 启动 Worker 线程
         for i in range(self.worker_count):
             worker = TaskWorker(
@@ -55,6 +57,26 @@ class TaskWorkerPool:
         self._dispatcher_thread.start()
 
         LOGGER.info(f"TaskWorkerPool 已启动，Worker 数量: {self.worker_count}")
+
+    def _recover_interrupted_tasks(self) -> None:
+        """恢复上一次服务退出时遗留的运行中任务。"""
+        now = utc_now()
+        with self.database.connection() as connection:
+            rows = connection.execute(
+                "SELECT id FROM processing_task WHERE status = 'RUNNING'"
+            ).fetchall()
+            if not rows:
+                return
+
+            connection.execute(
+                "UPDATE processing_task SET status='QUEUED', current_stage='QUEUED', progress=0, message='上次服务中断，已重新排队', cancel_requested=0, pause_requested=0, worker_id=NULL, heartbeat_at=NULL, started_at=NULL, finished_at=NULL, updated_at=? WHERE status='RUNNING'",
+                (now,),
+            )
+            connection.executemany(
+                "INSERT INTO task_event (task_id, stage, level, message, detail, created_at) VALUES (?, 'QUEUED', 'WARNING', '任务已恢复排队', '检测到上次服务在转录过程中停止，将从头重新处理', ?)",
+                [(row["id"], now) for row in rows],
+            )
+        LOGGER.warning("检测到 %d 个未完成任务，已恢复到等待队列", len(rows))
 
     def stop(self) -> None:
         """停止所有 Worker。"""
