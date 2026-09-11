@@ -14,12 +14,12 @@
       </n-space>
     </div>
 
-    <n-card size="small" class="result-toolbar">
-      <n-input v-model:value="searchKeyword" clearable placeholder="搜索文件名或文案内容..." style="max-width: 420px">
+    <div class="result-toolbar">
+      <n-input v-model:value="searchKeyword" clearable placeholder="搜索文件名或文案内容..." class="search-input">
         <template #prefix><n-icon><SearchOutline /></n-icon></template>
       </n-input>
-      <n-text depth="3">按完成时间倒序排列</n-text>
-    </n-card>
+      <n-text depth="3" class="sort-hint">按完成时间倒序排列</n-text>
+    </div>
 
     <n-spin :show="loading">
       <n-empty v-if="filteredResults.length === 0" description="暂无已完成的转录结果">
@@ -30,10 +30,7 @@
 
       <section v-else class="shelf" aria-label="转录结果书架">
         <div class="shelf-topline">
-          <div>
-            <span class="shelf-kicker">TRANSCRIPT LIBRARY</span>
-            <h2>内容书架</h2>
-          </div>
+          <h2>内容书架</h2>
           <n-text depth="3">点击卡片阅读完整内容</n-text>
         </div>
         <div class="book-grid">
@@ -114,56 +111,69 @@ onMounted(loadResults)
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 16px;
+  gap: 20px;
   flex-wrap: wrap;
 }
 
 .page-title {
-  margin-bottom: 4px;
-  font-size: 24px;
+  margin-bottom: 6px;
+  font-size: 28px;
   font-weight: 600;
+  line-height: 1.2;
 }
 
 .result-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 20px;
   flex-wrap: wrap;
+  padding: 16px 20px;
+  border-radius: 10px;
+  background: var(--n-color);
+  border: 1px solid var(--n-border-color);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.search-input {
+  flex: 1;
+  max-width: 480px;
+  min-width: 240px;
+}
+
+.sort-hint {
+  font-size: 13px;
+  white-space: nowrap;
 }
 
 .shelf {
   position: relative;
-  padding: 22px 22px 34px;
+  padding: 32px 28px 40px;
   border: 1px solid var(--n-border-color);
-  border-radius: 10px;
-  background: linear-gradient(180deg, rgba(217, 243, 107, 0.08), transparent 34%);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(217, 243, 107, 0.06), transparent 40%);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
 .shelf-topline {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 20px;
   margin-bottom: 24px;
 }
 
-.shelf-kicker {
-  color: #7c8d1a;
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  font-weight: 700;
-}
-
 .shelf-topline h2 {
-  margin: 4px 0 0;
+  margin: 0;
   font-size: 20px;
+  font-weight: 600;
+  color: var(--n-text-color-1);
 }
 
 .book-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 22px 18px;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 24px 20px;
 }
 
 .book-card {
@@ -174,78 +184,97 @@ onMounted(loadResults)
   text-align: left;
   background: transparent;
   cursor: pointer;
-  transition: transform 160ms ease;
+  transition: transform 200ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.book-card:hover,
-.book-card:focus-visible {
-  transform: translateY(-5px);
+.book-card:hover {
+  transform: translateY(-6px);
+}
+
+.book-card:active {
+  transform: translateY(-3px);
+  transition-duration: 100ms;
 }
 
 .book-card:focus-visible {
   outline: 2px solid var(--n-primary-color);
-  outline-offset: 5px;
+  outline-offset: 6px;
+  border-radius: 8px;
 }
 
 .book-cover {
   position: relative;
   display: flex;
-  min-height: 190px;
+  min-height: 180px;
   flex-direction: column;
   justify-content: space-between;
   overflow: hidden;
   padding: 18px;
-  border-radius: 6px 9px 9px 6px;
+  border-radius: 8px 10px 10px 8px;
   color: #fff;
-  box-shadow: 8px 10px 0 rgba(0, 0, 0, 0.1), 0 14px 26px rgba(22, 28, 10, 0.13);
+  box-shadow:
+    5px 7px 0 rgba(0, 0, 0, 0.08),
+    0 10px 20px rgba(22, 28, 10, 0.12),
+    0 3px 6px rgba(0, 0, 0, 0.08);
+  transition: box-shadow 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.book-card:hover .book-cover {
+  box-shadow:
+    7px 9px 0 rgba(0, 0, 0, 0.1),
+    0 14px 28px rgba(22, 28, 10, 0.16),
+    0 5px 10px rgba(0, 0, 0, 0.1);
 }
 
 .book-cover::before {
   position: absolute;
   top: 0;
   bottom: 0;
-  left: 10px;
+  left: 12px;
   width: 2px;
-  background: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.32);
   content: '';
 }
 
-.cover-0 { background: #536b32; }
-.cover-1 { background: #914f35; }
-.cover-2 { background: #345c68; }
-.cover-3 { background: #705780; }
-.cover-4 { background: #7a6131; }
+.cover-0 { background: linear-gradient(135deg, #5a7438 0%, #4a5f2e 100%); }
+.cover-1 { background: linear-gradient(135deg, #9a5640 0%, #7d4532 100%); }
+.cover-2 { background: linear-gradient(135deg, #3a6575 0%, #2d5160 100%); }
+.cover-3 { background: linear-gradient(135deg, #7b5f8a 0%, #624d70 100%); }
+.cover-4 { background: linear-gradient(135deg, #856a38 0%, #6b562e 100%); }
 
 .cover-type,
 .cover-number {
   position: relative;
   font-size: 10px;
-  letter-spacing: 0.1em;
-  opacity: 0.8;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.85;
 }
 
 .cover-number {
   align-self: flex-end;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 500;
 }
 
 .cover-mark {
   position: relative;
   align-self: center;
-  font-family: Georgia, serif;
-  font-size: 72px;
+  font-family: Georgia, 'Noto Serif SC', serif;
+  font-size: 68px;
   font-weight: 700;
   line-height: 1;
-  opacity: 0.88;
+  opacity: 0.9;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .book-info {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 6px;
-  padding: 14px 4px 0;
+  gap: 8px;
+  padding: 16px 4px 0;
 }
 
 .book-info strong,
@@ -257,47 +286,138 @@ onMounted(loadResults)
 
 .book-info strong {
   white-space: nowrap;
-  font-size: 14px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
 }
 
 .book-info > span {
   color: var(--n-text-color-3);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .book-info p {
   display: -webkit-box;
-  min-height: 36px;
+  min-height: 40px;
   margin: 0;
   color: var(--n-text-color-2);
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: 13px;
+  line-height: 1.6;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
 
 .book-meta {
   display: flex;
-  gap: 10px;
+  gap: 12px;
   color: var(--n-primary-color);
-  font-size: 11px;
+  font-size: 12px;
+  font-weight: 500;
 }
 
-.book-meta .muted { color: var(--n-text-color-3); }
+.book-meta .muted {
+  color: var(--n-text-color-3);
+  font-weight: 400;
+}
 
 .shelf-ledge {
-  height: 8px;
-  margin: 28px -6px -20px;
-  border-radius: 2px;
-  background: var(--n-border-color);
-  box-shadow: 0 5px 0 rgba(0, 0, 0, 0.08);
+  height: 10px;
+  margin: 32px -8px -24px;
+  border-radius: 3px;
+  background: linear-gradient(180deg, var(--n-border-color) 0%, rgba(0, 0, 0, 0.05) 100%);
+  box-shadow: 0 6px 0 rgba(0, 0, 0, 0.06);
 }
 
-@media (max-width: 620px) {
-  .shelf { padding: 16px 14px 28px; }
-  .shelf-topline { align-items: flex-start; flex-direction: column; }
-  .book-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 12px; }
-  .book-cover { min-height: 150px; padding: 14px; }
-  .cover-mark { font-size: 54px; }
+@media (max-width: 768px) {
+  .page-title {
+    font-size: 24px;
+  }
+
+  .result-toolbar {
+    padding: 14px 16px;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .search-input {
+    max-width: 100%;
+  }
+
+  .sort-hint {
+    text-align: center;
+  }
+
+  .shelf {
+    padding: 24px 20px 32px;
+  }
+
+  .shelf-topline {
+    align-items: flex-start;
+    flex-direction: column;
+    margin-bottom: 20px;
+  }
+
+  .book-grid {
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 20px 16px;
+  }
+
+  .book-cover {
+    min-height: 160px;
+    padding: 16px;
+  }
+
+  .cover-mark {
+    font-size: 58px;
+  }
+
+  .book-info {
+    gap: 6px;
+    padding: 12px 4px 0;
+  }
+
+  .book-info strong {
+    font-size: 14px;
+  }
+
+  .book-info p {
+    font-size: 12px;
+    min-height: 36px;
+  }
+}
+
+@media (max-width: 480px) {
+  .result-toolbar {
+    padding: 12px 14px;
+  }
+
+  .shelf {
+    padding: 20px 16px 28px;
+  }
+
+  .book-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px 12px;
+  }
+
+  .book-cover {
+    min-height: 140px;
+    padding: 14px;
+  }
+
+  .cover-mark {
+    font-size: 50px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .book-card,
+  .book-cover {
+    transition: none;
+  }
+
+  .book-card:hover {
+    transform: none;
+  }
 }
 </style>
