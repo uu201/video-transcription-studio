@@ -56,7 +56,10 @@ class SenseVoiceProvider:
             # 检查正确位置和嵌套位置的模型
             local_model_path = self.settings.model_dir / "iic" / "SenseVoiceSmall"
             nested_model_path = self.settings.model_dir / "models" / "iic" / "SenseVoiceSmall"
-            snapshot_root = self.settings.model_dir / "models" / self.settings.asr_model.replace("/", "--") / "snapshots"
+            snapshot_roots = (
+                self.settings.model_dir / self.settings.asr_model.replace("/", "--") / "snapshots",
+                self.settings.model_dir / "models" / self.settings.asr_model.replace("/", "--") / "snapshots",
+            )
 
             # 优先使用正确位置的模型
             if local_model_path.exists() and (local_model_path / "model.pt").exists():
@@ -78,9 +81,8 @@ class SenseVoiceProvider:
                 except Exception as e:
                     LOGGER.warning(f"移动模型失败，将使用嵌套位置: {e}")
                     model_path = str(nested_model_path.resolve())
-            elif snapshot_root.is_dir() and any((snapshot / "model.pt").is_file() for snapshot in snapshot_root.iterdir() if snapshot.is_dir()):
-                snapshot_model = next(snapshot for snapshot in snapshot_root.iterdir() if snapshot.is_dir() and (snapshot / "model.pt").is_file())
-                model_path = str(snapshot_model.parent.resolve())
+            elif (snapshot_model := self._find_snapshot_directory(snapshot_roots)) is not None:
+                model_path = str(snapshot_model.resolve())
                 LOGGER.info(f"使用 ModelScope 本地快照模型: {model_path}")
             else:
                 # 否则使用模型 ID，会自动下载
@@ -93,10 +95,13 @@ class SenseVoiceProvider:
 
             # SenseVoiceSmall 不需要 trust_remote_code，模型实现已内置在 FunASR 中
             # 设置为 False 可以避免 "No module named 'model'" 警告
+            vad_model = self._find_local_vad_model() or "fsmn-vad"
+            if Path(vad_model).is_absolute():
+                LOGGER.info(f"使用本地 FSMN-VAD 模型: {vad_model}")
             self._model = AutoModel(
                 model=model_path,  # 使用本地路径或模型 ID
                 trust_remote_code=False,
-                vad_model="fsmn-vad",
+                vad_model=vad_model,
                 vad_kwargs={"max_single_segment_time": self.settings.asr_max_segment_ms},
                 device=self.settings.asr_device,
                 disable_pbar=True,
@@ -109,6 +114,28 @@ class SenseVoiceProvider:
         except Exception as exc:
             raise AppError("ASR_MODEL_LOAD_FAILED", "语音识别模型加载失败", repr(exc), True, "检查模型目录、网络或切换到 CPU 后重试") from exc
         return self._model
+
+    @staticmethod
+    def _find_snapshot_directory(roots: tuple[Path, ...]) -> Path | None:
+        """返回包含 model.pt 的具体快照目录，而不是 snapshots 父目录。"""
+        for root in roots:
+            if not root.is_dir():
+                continue
+            for snapshot in sorted(root.iterdir()):
+                if snapshot.is_dir() and (snapshot / "model.pt").is_file():
+                    return snapshot
+        return None
+
+    def _find_local_vad_model(self) -> str | None:
+        """查找 ModelScope 缓存中的 FSMN-VAD 快照目录。"""
+        model_id = "iic/speech_fsmn_vad_zh-cn-16k-common-pytorch"
+        roots = (
+            self.settings.model_dir / model_id.replace("/", "--") / "snapshots",
+            self.settings.model_dir / "models" / model_id.replace("/", "--") / "snapshots",
+            self.settings.model_dir / "iic" / "speech_fsmn_vad_zh-cn-16k-common-pytorch" / "snapshots",
+        )
+        snapshot = self._find_snapshot_directory(roots)
+        return str(snapshot.resolve()) if snapshot else None
 
     def _fix_nested_models_directory(self) -> None:
         """修复 ModelScope 可能创建的嵌套 models 目录。
