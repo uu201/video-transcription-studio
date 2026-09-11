@@ -112,6 +112,7 @@ import { useRouter } from 'vue-router'
 import { NButton, NTag, NProgress, NIcon, useMessage, useDialog } from 'naive-ui'
 import { Refresh as RefreshOutline, Search as SearchOutline, DocumentText as DocumentTextOutline, RefreshCircle as RefreshCircleOutline, CloseCircle as CloseCircleOutline, Trash as TrashOutline, Pause as PauseOutline, Play as PlayOutline } from '@vicons/ionicons5'
 import { useTaskStore } from '@/stores/task'
+import { formatDateTime } from '@/utils/format'
 
 const router = useRouter()
 const message = useMessage()
@@ -236,7 +237,7 @@ const columns = [
     title: '更新时间',
     key: 'updated_at',
     width: 160,
-    render: (row) => row.updated_at || row.updatedAt || '--'
+    render: (row) => formatDateTime(row.updated_at || row.updatedAt)
   },
   {
     title: '操作',

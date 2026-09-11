@@ -179,6 +179,7 @@ import {
 } from '@vicons/ionicons5'
 import { useTaskStore } from '@/stores/task'
 import api from '@/api'
+import { formatDateTime } from '@/utils/format'
 
 const router = useRouter()
 const route = useRoute()
@@ -285,11 +286,6 @@ function formatBytes(value) {
 
 function formatResolution(info) {
   return info.width && info.height ? `${info.width} × ${info.height}` : '仅音频'
-}
-
-function formatDateTime(value) {
-  if (!value) return '--'
-  return String(value).replace('T', ' ').replace('Z', '')
 }
 
 async function loadTask() {

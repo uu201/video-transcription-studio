@@ -159,6 +159,7 @@ import { ref, h, computed, onMounted } from 'vue'
 import { NButton, NTag, NIcon, NTooltip, useMessage, useDialog } from 'naive-ui'
 import { Add as AddOutline, Search as SearchOutline, Create as CreateOutline, Trash as TrashOutline } from '@vicons/ionicons5'
 import { useSourceStore } from '@/stores/source'
+import { formatDateTime } from '@/utils/format'
 import api from '@/api'
 
 const message = useMessage()
@@ -256,7 +257,7 @@ const columns = [
     title: '最近扫描',
     key: 'updatedAt',
     width: 160,
-    render: (row) => row.updatedAt || row.updated_at || '--'
+    render: (row) => formatDateTime(row.updatedAt || row.updated_at)
   },
   {
     title: '操作',

@@ -154,6 +154,7 @@ import { NButton, NTag, NProgress, useMessage } from 'naive-ui'
 import { FolderOpen as FolderAddOutline, Refresh as RefreshOutline } from '@vicons/ionicons5'
 import { useTaskStore } from '@/stores/task'
 import api from '@/api'
+import { formatDateTime } from '@/utils/format'
 
 const router = useRouter()
 const message = useMessage()
@@ -258,7 +259,7 @@ async function checkEnvironment() {
     }
 
     if (data.checkedAt) {
-      checkedAt.value = new Date(data.checkedAt).toLocaleString('zh-CN')
+      checkedAt.value = formatDateTime(data.checkedAt)
     }
 
     if (data.items && Array.isArray(data.items)) {
