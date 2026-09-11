@@ -13,19 +13,19 @@
           <n-text depth="3" style="word-break: break-all">{{ task.file_path }}</n-text>
         </div>
         <n-space>
-          <n-button v-if="task.status === 'failed'" type="warning" @click="handleRetry">
+          <n-button v-if="task.status === 'FAILED'" type="warning" @click="handleRetry">
             <template #icon>
               <n-icon><RefreshCircleOutline /></n-icon>
             </template>
             重新尝试
           </n-button>
-          <n-button v-if="task.status === 'processing'" type="error" @click="handleCancel">
+          <n-button v-if="task.status === 'RUNNING'" type="error" @click="handleCancel">
             <template #icon>
               <n-icon><CloseCircleOutline /></n-icon>
             </template>
             终止任务
           </n-button>
-          <n-button v-if="task.status === 'completed'" type="success" disabled>
+          <n-button v-if="task.status === 'SUCCEEDED'" type="success" disabled>
             <template #icon>
               <n-icon><CheckmarkCircleOutline /></n-icon>
             </template>
@@ -62,7 +62,7 @@
               </template>
             </n-statistic>
             <n-text depth="3" style="font-size: 12px; margin-top: 8px; display: block">
-              阶段: {{ task.current_stage || '--' }}
+              阶段: {{ task.stage || '--' }}
             </n-text>
           </n-card>
         </n-gi>
@@ -72,7 +72,7 @@
             <n-progress
               type="line"
               :percentage="task.progress || 0"
-              :status="task.status === 'failed' ? 'error' : (task.status === 'completed' ? 'success' : 'default')"
+              :status="task.status === 'FAILED' ? 'error' : (task.status === 'SUCCEEDED' ? 'success' : 'default')"
               :show-indicator="false"
               style="margin-top: 8px"
             />
@@ -81,12 +81,12 @@
       </n-grid>
 
       <!-- 错误信息 -->
-      <n-alert v-if="task.status === 'failed' && task.message" type="error" title="任务执行中断">
+      <n-alert v-if="task.status === 'FAILED' && task.message" type="error" title="任务执行中断">
         {{ task.message }}
       </n-alert>
 
       <!-- 转写结果 -->
-      <n-card v-if="task.status === 'completed'" title="转写文案资产">
+      <n-card v-if="task.status === 'SUCCEEDED'" title="转写文案资产">
         <template #header-extra>
           <n-space>
             <n-button size="small" @click="handleExport('txt')">
@@ -187,19 +187,19 @@ const task = ref(null)
 const activeTab = ref('clean')
 
 const statusTypeMap = {
-  pending: 'default',
-  processing: 'warning',
-  completed: 'success',
-  failed: 'error',
-  cancelled: 'default'
+  QUEUED: 'default',
+  RUNNING: 'warning',
+  SUCCEEDED: 'success',
+  FAILED: 'error',
+  CANCELED: 'default'
 }
 
 const statusLabelMap = {
-  pending: '等待处理',
-  processing: '处理中',
-  completed: '已完成',
-  failed: '失败',
-  cancelled: '已取消'
+  QUEUED: '等待处理',
+  RUNNING: '处理中',
+  SUCCEEDED: '已完成',
+  FAILED: '失败',
+  CANCELED: '已取消'
 }
 
 const segmentColumns = [

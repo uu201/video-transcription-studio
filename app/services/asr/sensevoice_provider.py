@@ -28,10 +28,18 @@ class SenseVoiceProvider:
 
         # 将模型缓存固定到项目目录，避免模型散落在用户目录且难以备份。
         # 关键：设置环境变量必须在导入 funasr 之前
-        cache_dir = str(self.settings.model_dir)
+        # 对于 Windows 中文路径，需要确保使用正确的编码
+        cache_dir = str(self.settings.model_dir.resolve())
         os.environ["MODELSCOPE_CACHE"] = cache_dir
-        os.environ["HF_HOME"] = str(self.settings.model_dir / "huggingface")
+        os.environ["HF_HOME"] = str(self.settings.model_dir.resolve() / "huggingface")
         os.environ["MODELSCOPE_MODULES_CACHE"] = cache_dir
+
+        # 对于 Windows 系统，设置环境变量确保路径编码正确
+        if os.name == 'nt':
+            import sys
+            # 确保 Python 使用 UTF-8 处理文件系统路径
+            if sys.getfilesystemencoding().lower() != 'utf-8':
+                LOGGER.warning(f"文件系统编码为 {sys.getfilesystemencoding()}，可能导致中文路径问题")
 
         try:
             from funasr import AutoModel
@@ -45,13 +53,30 @@ class SenseVoiceProvider:
             ) from exc
 
         try:
-            # 检查本地模型路径
+            # 检查正确位置和嵌套位置的模型
             local_model_path = self.settings.model_dir / "iic" / "SenseVoiceSmall"
+            nested_model_path = self.settings.model_dir / "models" / "iic" / "SenseVoiceSmall"
 
-            # 如果本地模型存在，直接使用本地路径，避免重新下载
+            # 优先使用正确位置的模型
             if local_model_path.exists() and (local_model_path / "model.pt").exists():
-                model_path = str(local_model_path)
+                # 将路径转换为绝对路径并使用 resolve() 规范化
+                # 对于 Windows 上的中文路径，使用短路径格式可以避免某些编码问题
+                model_path = str(local_model_path.resolve())
                 LOGGER.info(f"使用本地模型: {model_path}")
+            # 如果嵌套位置有完整模型，先移动到正确位置再使用
+            elif nested_model_path.exists() and (nested_model_path / "model.pt").exists():
+                LOGGER.info(f"检测到嵌套位置的模型，正在移动到正确位置...")
+                try:
+                    import shutil
+                    # 确保目标父目录存在
+                    local_model_path.parent.mkdir(parents=True, exist_ok=True)
+                    # 移动整个模型目录
+                    shutil.move(str(nested_model_path), str(local_model_path))
+                    LOGGER.info(f"模型已移动到: {local_model_path}")
+                    model_path = str(local_model_path.resolve())
+                except Exception as e:
+                    LOGGER.warning(f"移动模型失败，将使用嵌套位置: {e}")
+                    model_path = str(nested_model_path.resolve())
             else:
                 # 否则使用模型 ID，会自动下载
                 model_path = self.settings.asr_model
@@ -61,9 +86,11 @@ class SenseVoiceProvider:
             for logger_name in ("funasr", "modelscope", "modelscope.hub", "huggingface_hub"):
                 logging.getLogger(logger_name).setLevel(logging.WARNING)
 
+            # SenseVoiceSmall 不需要 trust_remote_code，模型实现已内置在 FunASR 中
+            # 设置为 False 可以避免 "No module named 'model'" 警告
             self._model = AutoModel(
                 model=model_path,  # 使用本地路径或模型 ID
-                trust_remote_code=True,
+                trust_remote_code=False,
                 vad_model="fsmn-vad",
                 vad_kwargs={"max_single_segment_time": self.settings.asr_max_segment_ms},
                 device=self.settings.asr_device,

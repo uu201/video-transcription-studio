@@ -122,13 +122,9 @@ class EnvironmentChecker:
         writable, writable_detail = self._writable_directory(self.settings.model_dir)
         items.append({"key": "modelDir", "label": "模型目录", "status": "ok" if writable else "error", "value": "可写" if writable else "不可写", "detail": writable_detail})
 
-        # ModelScope 在不同版本中可能把模型放到 model_dir 或 model_dir/models，
-        # 同时兼容用户目录缓存，避免下载过程中页面显示错误状态。
+        # ModelScope 在不同版本中可能把模型放到 model_dir 或 model_dir/models
+        # 只检查项目目录下的模型，不包括用户目录缓存，以准确反映项目状态
         model_cache_roots = [self.settings.model_dir, self.settings.model_dir / "models"]
-        user_cache_value = os.getenv("MODELSCOPE_CACHE")
-        if user_cache_value:
-            model_cache_roots.append(Path(user_cache_value))
-        model_cache_roots.append(Path.home() / ".cache" / "modelscope" / "hub" / "models")
 
         def model_state(model_name: str, label: str) -> dict[str, Any]:
             """检查模型权重和 ModelScope 临时下载目录。"""

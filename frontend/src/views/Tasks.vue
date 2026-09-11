@@ -29,10 +29,10 @@
 
         <n-radio-group v-model:value="filterStatus" size="small">
           <n-radio-button value="all">全部 ({{ taskStore.tasks.length }})</n-radio-button>
-          <n-radio-button value="pending">待处理 ({{ taskStore.taskStats.pending }})</n-radio-button>
-          <n-radio-button value="processing">处理中 ({{ taskStore.taskStats.processing }})</n-radio-button>
-          <n-radio-button value="completed">已完成 ({{ taskStore.taskStats.completed }})</n-radio-button>
-          <n-radio-button value="failed">失败 ({{ taskStore.taskStats.failed }})</n-radio-button>
+          <n-radio-button value="QUEUED">待处理 ({{ taskStore.taskStats.pending }})</n-radio-button>
+          <n-radio-button value="RUNNING">处理中 ({{ taskStore.taskStats.processing }})</n-radio-button>
+          <n-radio-button value="SUCCEEDED">已完成 ({{ taskStore.taskStats.completed }})</n-radio-button>
+          <n-radio-button value="FAILED">失败 ({{ taskStore.taskStats.failed }})</n-radio-button>
         </n-radio-group>
       </n-space>
     </n-card>
@@ -97,19 +97,19 @@ const filteredTasks = computed(() => {
 })
 
 const statusTypeMap = {
-  pending: 'default',
-  processing: 'warning',
-  completed: 'success',
-  failed: 'error',
-  cancelled: 'default'
+  QUEUED: 'default',
+  RUNNING: 'warning',
+  SUCCEEDED: 'success',
+  FAILED: 'error',
+  CANCELED: 'default'
 }
 
 const statusLabelMap = {
-  pending: '等待处理',
-  processing: '处理中',
-  completed: '已完成',
-  failed: '失败',
-  cancelled: '已取消'
+  QUEUED: '等待处理',
+  RUNNING: '处理中',
+  SUCCEEDED: '已完成',
+  FAILED: '失败',
+  CANCELED: '已取消'
 }
 
 const columns = [
@@ -145,9 +145,9 @@ const columns = [
   },
   {
     title: '当前阶段',
-    key: 'current_stage',
+    key: 'stage',
     width: 130,
-    render: (row) => h('span', { style: 'font-size: 12px' }, row.current_stage || row.currentStage || '--')
+    render: (row) => h('span', { style: 'font-size: 12px' }, row.stage || '--')
   },
   {
     title: '总进度',
@@ -156,7 +156,7 @@ const columns = [
     render: (row) => h(NProgress, {
       type: 'line',
       percentage: row.progress || 0,
-      status: row.status === 'failed' ? 'error' : (row.status === 'completed' ? 'success' : 'default'),
+      status: row.status === 'FAILED' ? 'error' : (row.status === 'SUCCEEDED' ? 'success' : 'default'),
       showIndicator: true
     })
   },
@@ -186,7 +186,7 @@ const columns = [
         })
       )
 
-      if (row.status === 'processing') {
+      if (row.status === 'RUNNING') {
         actions.push(
           h(NButton, {
             text: true,
@@ -200,7 +200,7 @@ const columns = [
         )
       }
 
-      if (row.status === 'failed') {
+      if (row.status === 'FAILED') {
         actions.push(
           h(NButton, {
             text: true,
@@ -214,7 +214,7 @@ const columns = [
         )
       }
 
-      if (row.status === 'failed' || row.status === 'cancelled') {
+      if (row.status === 'FAILED' || row.status === 'CANCELED') {
         actions.push(
           h(NButton, {
             text: true,

@@ -8,10 +8,10 @@ export const useTaskStore = defineStore('task', () => {
 
   const taskStats = computed(() => {
     return {
-      pending: tasks.value.filter(t => t.status === 'pending').length,
-      processing: tasks.value.filter(t => t.status === 'processing').length,
-      completed: tasks.value.filter(t => t.status === 'completed').length,
-      failed: tasks.value.filter(t => t.status === 'failed').length
+      pending: tasks.value.filter(t => t.status === 'QUEUED').length,
+      processing: tasks.value.filter(t => t.status === 'RUNNING').length,
+      completed: tasks.value.filter(t => t.status === 'SUCCEEDED').length,
+      failed: tasks.value.filter(t => t.status === 'FAILED').length
     }
   })
 
