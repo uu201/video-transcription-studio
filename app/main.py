@@ -25,12 +25,14 @@ from app.web.views import router as web_router
 from app.workers.worker import TaskWorkerPool
 from app.exceptions import AppException
 from app.error_handlers import app_exception_handler, generic_exception_handler
+from app.runtime_check import ensure_supported_runtime
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)-7s | %(message)s", datefmt="%H:%M:%S")
 
 
 def create_app() -> FastAPI:
     """创建并配置 FastAPI 实例。"""
+    ensure_supported_runtime()
     settings = load_settings()
     database = Database(settings.database_path)
     database.migrate()

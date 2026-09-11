@@ -9,7 +9,7 @@ echo 前端将运行在: http://localhost:5173
 echo API 代理到: http://localhost:8000
 echo.
 echo 请确保后端已在另一个终端启动:
-echo   python run.py
+echo   .venv\Scripts\python.exe start.py
 echo.
 echo ========================================
 

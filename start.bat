@@ -16,4 +16,12 @@ if not exist "app\static\dist\index.html" (
 
 echo [启动] 启动后端服务...
 echo.
-python run.py
+set "PROJECT_PYTHON=%~dp0.venv\Scripts\python.exe"
+if not exist "%PROJECT_PYTHON%" (
+    echo [错误] 未找到项目虚拟环境：%PROJECT_PYTHON%
+    echo 请先执行：py -3.11 -m venv .venv
+    echo 再执行：%~dp0.venv\Scripts\python.exe -m pip install -r requirements.txt
+    pause
+    exit /b 1
+)
+"%PROJECT_PYTHON%" "%~dp0start.py"

@@ -5,7 +5,7 @@
 ## 技术栈
 
 ### 后端
-- Python 3.10+
+- Python 3.10 - 3.12（推荐 3.11）
 - FastAPI
 - SQLite
 - FunASR (SenseVoice)
@@ -42,26 +42,55 @@
 
 ## 快速开始
 
-### 1. 安装 Python 依赖
+### 1. 检查运行环境
 
-```bash
-python -m pip install -r requirements.txt
+本项目当前支持以下环境：
+
+| 条件 | 要求 |
+| --- | --- |
+| Python | 3.10、3.11 或 3.12，推荐 3.11 |
+| Python 架构 | 64 位（Windows x64） |
+| Node.js | 18 或更高版本 |
+| FFmpeg | Windows x64 版本已随项目内置；其他平台需提供对应工具 |
+| 内存 | 推荐 8 GB 以上 |
+| 磁盘 | 预留模型缓存和临时音频空间 |
+
+Python 3.13 及更高版本暂不支持。项目固定 `numpy<=1.26.4`，在 Python 3.13 的 Windows 环境中可能安装 NumPy 的 MinGW 实验构建，导致 FunASR 启动警告或崩溃。
+
+Windows PowerShell 中先确认 Python 版本：
+
+```powershell
+py -0p
+py -3.11 --version
 ```
 
-### 2. 安装前端依赖
+如果没有 Python 3.10-3.12，请先安装其中一个版本。推荐使用 Python 3.11。
+
+### 2. 创建虚拟环境并安装 Python 依赖
+
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -c "import sys; print(sys.version); import numpy; print('numpy', numpy.__version__)"
+```
+
+不要使用系统 `python -m pip` 安装项目依赖，确保安装和启动都使用 `.venv\Scripts\python.exe`。
+
+### 3. 安装前端依赖
 
 ```bash
 cd frontend
 npm install
 ```
 
-### 3. 开发模式
+### 4. 开发模式
 
 **前后端分离开发（推荐）：**
 
 终端 1 - 启动后端：
 ```bash
-python run.py
+.venv\Scripts\python.exe start.py
 # 后端运行在 http://localhost:8000
 ```
 
@@ -73,7 +102,7 @@ npm run dev
 # 自动代理 API 请求到后端
 ```
 
-### 4. 生产模式
+### 5. 生产模式
 
 **构建前端并通过 Python 启动：**
 
@@ -85,7 +114,7 @@ npm run build
 
 # 2. 启动 Python（包含前端）
 cd ..
-python run.py
+.venv\Scripts\python.exe start.py
 # 访问 http://localhost:8000
 ```
 
@@ -111,9 +140,12 @@ npm run preview  # 预览构建产物
 
 ## 环境要求
 
-- Python 3.10+
+- Python 3.10 - 3.12（推荐 3.11）
+- Python 3.13 及更高版本不支持
+- Windows 使用 64 位 Python；不要混用系统 Python 和项目虚拟环境
 - Node.js 18+
-- FFmpeg（用于音视频处理）
+- 媒体工具：Windows 生产模式直接使用项目内置的 `runtime/ffmpeg/windows-x64/ffmpeg.exe` 和 `ffprobe.exe`；macOS/Linux 需要补充对应平台目录，或设置 `VIDEO_TEXT_FFMPEG_DIR`
+- 首次识别需要下载 SenseVoice 和 FSMN-VAD 模型；请预留网络和磁盘空间
 - 推荐 8GB+ 内存
 
 ## 配置
@@ -143,15 +175,39 @@ npm run build
 ### 2. FunASR 模块未找到
 
 安装 Python 依赖：
-```bash
-python -m pip install -r requirements.txt
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-### 3. FFmpeg 不可用
+### 3. NumPy 出现 `MINGW-W64` 或 `getlimits.py` 警告
 
-- Windows: 下载 FFmpeg 并添加到 PATH
-- macOS: `brew install ffmpeg`
-- Linux: `sudo apt install ffmpeg`
+这表示当前虚拟环境通常使用了 Python 3.13，而项目固定的 NumPy 1.26.x 没有对应的官方 Windows wheel。请使用 Python 3.11 重建环境：
+
+```powershell
+deactivate  # 如果当前已激活旧环境
+Remove-Item -Recurse -Force .venv
+py -3.11 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe start.py
+```
+
+### 4. FFmpeg 不可用
+
+主应用默认从 `runtime/ffmpeg/<平台目录>/` 查找 `ffmpeg` 和 `ffprobe`，不要求 Windows 用户另行安装 FFmpeg。当前仓库已提供：
+
+```text
+runtime/ffmpeg/windows-x64/ffmpeg.exe
+runtime/ffmpeg/windows-x64/ffprobe.exe
+```
+
+如果使用 macOS/Linux，或需要指定外部版本，可以设置工具目录：
+
+```powershell
+$env:VIDEO_TEXT_FFMPEG_DIR = "D:\\tools\\ffmpeg"
+.\.venv\Scripts\python.exe start.py
+```
+
+独立脚本 `video_to_text.py` 目前通过系统 PATH 查找 `ffmpeg`；直接运行该脚本时仍需安装 FFmpeg 或将其加入 PATH。
 
 ## 许可证
 
