@@ -6,12 +6,49 @@ export const useTaskStore = defineStore('task', () => {
   const tasks = ref([])
   const loading = ref(false)
 
+  function replaceRealtimeTasks(incoming) {
+    const current = new Map(tasks.value.map(task => [task.id, task]))
+    tasks.value = incoming.map(task => ({ ...current.get(task.id), ...task }))
+  }
+
+  function mergeRealtimeTask(update) {
+    const index = tasks.value.findIndex(task => task.id === update.taskId)
+    if (index === -1) {
+      fetchTasks()
+      return
+    }
+    const current = tasks.value[index]
+    if (update.at && current.updatedAt && Date.parse(update.at) < Date.parse(current.updatedAt)) {
+      return
+    }
+    const nextProgress = update.progress !== undefined
+      ? Math.max(Number(current.progress) || 0, Number(update.progress) || 0)
+      : current.progress
+    tasks.value[index] = {
+      ...current,
+      ...(update.status ? { status: update.status } : {}),
+      ...(update.stage ? { stage: update.stage } : {}),
+      ...(update.progress !== undefined ? { progress: nextProgress } : {}),
+      ...(update.message !== undefined ? { message: update.message } : {}),
+      ...(update.pauseRequested !== undefined ? { pauseRequested: update.pauseRequested } : {}),
+      ...(update.cancelRequested !== undefined ? { cancelRequested: update.cancelRequested } : {}),
+      ...(update.at ? { updatedAt: update.at } : {}),
+      ...(update.error ? { error: update.error } : {})
+    }
+  }
+
+  function removeRealtimeTask(taskId) {
+    tasks.value = tasks.value.filter(task => task.id !== taskId)
+  }
+
   const taskStats = computed(() => {
     return {
       pending: tasks.value.filter(t => t.status === 'QUEUED').length,
       processing: tasks.value.filter(t => t.status === 'RUNNING').length,
+      paused: tasks.value.filter(t => t.status === 'PAUSED').length,
       completed: tasks.value.filter(t => t.status === 'SUCCEEDED').length,
-      failed: tasks.value.filter(t => t.status === 'FAILED').length
+      failed: tasks.value.filter(t => t.status === 'FAILED').length,
+      canceled: tasks.value.filter(t => t.status === 'CANCELED').length
     }
   })
 
@@ -56,6 +93,26 @@ export const useTaskStore = defineStore('task', () => {
     }
   }
 
+  async function pauseTask(id) {
+    try {
+      await api.pauseTask(id)
+      await fetchTasks()
+    } catch (error) {
+      console.error('Failed to pause task:', error)
+      throw error
+    }
+  }
+
+  async function resumeTask(id) {
+    try {
+      await api.resumeTask(id)
+      await fetchTasks()
+    } catch (error) {
+      console.error('Failed to resume task:', error)
+      throw error
+    }
+  }
+
   async function deleteTask(id) {
     try {
       await api.deleteTask(id)
@@ -69,11 +126,16 @@ export const useTaskStore = defineStore('task', () => {
   return {
     tasks,
     loading,
+    replaceRealtimeTasks,
+    mergeRealtimeTask,
+    removeRealtimeTask,
     taskStats,
     fetchTasks,
     getTaskDetail,
     retryTask,
     cancelTask,
+    pauseTask,
+    resumeTask,
     deleteTask
   }
 })

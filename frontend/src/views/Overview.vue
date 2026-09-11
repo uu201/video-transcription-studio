@@ -79,47 +79,30 @@
 
       <!-- 加载骨架屏 -->
       <n-space v-if="envLoading" vertical :size="12">
-        <n-skeleton v-for="i in 9" :key="i" text style="width: 100%" />
+        <n-skeleton v-for="i in 2" :key="i" text style="width: 100%" />
       </n-space>
 
       <!-- 空状态 -->
       <n-empty v-else-if="envItems.length === 0" description="点击右上角按钮检测环境" />
 
       <!-- 环境列表 -->
-      <n-list v-else bordered>
-        <n-list-item v-for="item in envItems" :key="item.key">
-          <template #prefix>
-            <n-tag
-              :type="item.status === 'ok' ? 'success' : (item.status === 'warn' ? 'warning' : 'error')"
-              size="small"
-              round
-            >
-              {{ item.status === 'ok' ? '✓' : (item.status === 'warn' ? '!' : '✗') }}
-            </n-tag>
-          </template>
-
-          <n-thing>
-            <template #header>
-              {{ item.label }}
-            </template>
-            <template #description>
-              <n-space vertical :size="4">
-                <n-text depth="2">{{ item.value }}</n-text>
-                <n-text depth="3" style="font-size: 12px">{{ item.detail }}</n-text>
-              </n-space>
-            </template>
-          </n-thing>
-
-          <template #suffix>
-            <n-tag
-              :type="item.status === 'ok' ? 'success' : (item.status === 'warn' ? 'warning' : 'error')"
-              size="small"
-            >
-              {{ item.status === 'ok' ? '正常' : (item.status === 'warn' ? '警告' : '异常') }}
-            </n-tag>
-          </template>
-        </n-list-item>
-      </n-list>
+      <n-grid v-else :cols="3" :x-gap="12" :y-gap="12" responsive="screen" item-responsive>
+        <n-gi v-for="item in envItems" :key="item.key" span="3 m:1">
+          <div class="environment-item">
+            <div class="environment-item-heading">
+              <span class="environment-indicator" :class="`indicator-${item.status}`">
+                {{ item.status === 'ok' ? '✓' : (item.status === 'warn' ? '!' : '✗') }}
+              </span>
+              <strong>{{ item.label }}</strong>
+              <n-tag :type="statusType(item.status)" size="small">
+                {{ statusLabel(item.status) }}
+              </n-tag>
+            </div>
+            <n-text class="environment-value" depth="2">{{ item.value }}</n-text>
+            <n-text class="environment-detail" depth="3">{{ item.detail }}</n-text>
+          </div>
+        </n-gi>
+      </n-grid>
 
       <!-- 检测时间 -->
       <n-text v-if="checkedAt && !envLoading" depth="3" style="display: block; margin-top: 12px; font-size: 12px">
@@ -167,7 +150,7 @@
 <script setup>
 import { ref, computed, onMounted, h } from 'vue'
 import { useRouter } from 'vue-router'
-import { NButton, NTag, useMessage } from 'naive-ui'
+import { NButton, NTag, NProgress, useMessage } from 'naive-ui'
 import { FolderOpen as FolderAddOutline, Refresh as RefreshOutline } from '@vicons/ionicons5'
 import { useTaskStore } from '@/stores/task'
 import api from '@/api'
@@ -184,44 +167,58 @@ const checkedAt = ref('')
 const recentTasks = computed(() => taskStore.tasks.slice(0, 5))
 
 const statusTypeMap = {
-  pending: 'default',
-  processing: 'warning',
-  completed: 'success',
-  failed: 'error'
+  QUEUED: 'default',
+  RUNNING: 'warning',
+  SUCCEEDED: 'success',
+  FAILED: 'error',
+  CANCELED: 'default',
+  PAUSED: 'warning'
 }
 
 const statusLabelMap = {
-  pending: '等待处理',
-  processing: '处理中',
-  completed: '已完成',
-  failed: '失败'
+  QUEUED: '等待处理',
+  RUNNING: '处理中',
+  SUCCEEDED: '已完成',
+  FAILED: '处理失败',
+  CANCELED: '已取消',
+  PAUSED: '已暂停'
 }
 
 const taskColumns = [
   {
     title: '文件名',
-    key: 'file_name',
+    key: 'fileName',
     ellipsis: { tooltip: true },
     render: (row) => row.file_name || row.fileName || '未知文件'
   },
   {
     title: '状态',
     key: 'status',
-    width: 100,
-    render: (row) => {
-      return h(NTag, {
+    width: 110,
+    render: (row) => h(NTag, {
         type: statusTypeMap[row.status] || 'default',
         size: 'small'
       }, {
         default: () => statusLabelMap[row.status] || row.status
       })
-    }
   },
   {
     title: '进度',
     key: 'progress',
-    width: 100,
-    render: (row) => `${row.progress || 0}%`
+    width: 190,
+    render: (row) => {
+      const percentage = Math.max(0, Math.min(100, Number(row.progress) || 0))
+      return h('div', { style: 'display:flex;align-items:center;gap:10px;min-width:160px' }, [
+        h(NProgress, {
+          type: 'line',
+          percentage,
+          status: row.status === 'FAILED' ? 'error' : (row.status === 'SUCCEEDED' ? 'success' : 'default'),
+          showIndicator: false,
+          style: 'flex:1;min-width:90px'
+        }),
+        h('span', { style: 'width:38px;text-align:right;font-variant-numeric:tabular-nums;font-size:12px' }, `${percentage}%`)
+      ])
+    }
   },
   {
     title: '操作',
@@ -242,6 +239,14 @@ const taskColumns = [
   }
 ]
 
+function statusType(status) {
+  return status === 'ok' ? 'success' : (status === 'warn' ? 'warning' : 'error')
+}
+
+function statusLabel(status) {
+  return status === 'ok' ? '正常' : (status === 'warn' ? '警告' : '异常')
+}
+
 async function checkEnvironment() {
   envLoading.value = true
   try {
@@ -257,7 +262,7 @@ async function checkEnvironment() {
     }
 
     if (data.items && Array.isArray(data.items)) {
-      envItems.value = data.items
+      envItems.value = data.items.filter(item => item.key !== 'modelDir')
     }
 
     message.success('环境检测完成')
@@ -292,5 +297,64 @@ onMounted(async () => {
   font-size: 24px;
   font-weight: 600;
   margin-bottom: 4px;
+}
+
+.environment-item {
+  height: 100%;
+  min-height: 112px;
+  padding: 14px 15px;
+  border: 1px solid var(--n-border-color);
+  border-radius: 8px;
+  background: var(--n-color-modal);
+}
+
+.environment-item-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.environment-item-heading strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.environment-indicator {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  flex: 0 0 auto;
+}
+
+.indicator-ok { color: #087443; background: rgba(24, 160, 88, 0.14); }
+.indicator-warn { color: #9a6700; background: rgba(240, 160, 32, 0.16); }
+.indicator-error { color: #b42318; background: rgba(208, 48, 80, 0.14); }
+
+.environment-value {
+  display: block;
+  margin-top: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.environment-detail {
+  display: block;
+  margin-top: 5px;
+  font-size: 11px;
+  line-height: 1.45;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

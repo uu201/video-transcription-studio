@@ -91,7 +91,7 @@ npm install
 终端 1 - 启动后端：
 ```bash
 .venv\Scripts\python.exe start.py
-# 后端运行在 http://localhost:8000
+# 后端运行在 http://localhost:8100
 ```
 
 终端 2 - 启动前端：
@@ -115,7 +115,7 @@ npm run build
 # 2. 启动 Python（包含前端）
 cd ..
 .venv\Scripts\python.exe start.py
-# 访问 http://localhost:8000
+# 访问 http://localhost:8100
 ```
 
 ## 开发说明
@@ -129,7 +129,7 @@ npm run build    # 生产构建
 npm run preview  # 预览构建产物
 ```
 
-前端开发时，Vite 会自动代理 `/api` 和 `/ws` 请求到 `http://localhost:8000`
+前端开发时，Vite 会自动代理 `/api` 和 `/ws` 请求到 `http://127.0.0.1:8100`
 
 ### 添加新功能
 

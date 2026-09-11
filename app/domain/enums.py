@@ -11,6 +11,7 @@ class TaskStatus(str, Enum):
     SUCCEEDED = "SUCCEEDED"
     FAILED = "FAILED"
     CANCELED = "CANCELED"
+    PAUSED = "PAUSED"
 
 
 class TaskStage(str, Enum):

@@ -108,7 +108,7 @@ class TaskWorkerPool:
         now = utc_now()
         with self.database.connection() as connection:
             row = connection.execute(
-                "SELECT id FROM processing_task WHERE status = 'QUEUED' AND cancel_requested = 0 ORDER BY created_at LIMIT 1"
+                "SELECT id FROM processing_task WHERE status = 'QUEUED' AND cancel_requested = 0 AND pause_requested = 0 ORDER BY created_at LIMIT 1"
             ).fetchone()
 
             if not row:
@@ -116,7 +116,7 @@ class TaskWorkerPool:
 
             # 标记任务为已领取但未分配 Worker
             changed = connection.execute(
-                "UPDATE processing_task SET status = 'RUNNING', current_stage = 'PROBING', progress = 1, message = '等待 Worker 处理', heartbeat_at = ?, started_at = COALESCE(started_at, ?), updated_at = ? WHERE id = ? AND status = 'QUEUED'",
+                "UPDATE processing_task SET status = 'RUNNING', current_stage = 'PROBING', progress = 1, message = '等待 Worker 处理', heartbeat_at = ?, started_at = COALESCE(started_at, ?), updated_at = ? WHERE id = ? AND status = 'QUEUED' AND pause_requested = 0",
                 (now, now, now, row["id"])
             ).rowcount
 
@@ -127,6 +127,9 @@ class TaskWorkerPool:
                 "INSERT INTO task_event (task_id, stage, level, message, created_at) VALUES (?, 'PROBING', 'INFO', '任务已领取', ?)",
                 (row["id"], now)
             )
+
+            if self.event_hub:
+                self.event_hub.publish({"type": "task.updated", "taskId": int(row["id"]), "status": "RUNNING", "stage": "PROBING", "progress": 1, "message": "等待 Worker 处理", "at": now})
 
             return int(row["id"])
 

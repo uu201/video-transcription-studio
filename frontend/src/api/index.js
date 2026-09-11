@@ -57,6 +57,14 @@ export default {
     return request.get(`/tasks/${id}`)
   },
 
+  getTranscript(id) {
+    return request.get(`/tasks/${id}/transcript`)
+  },
+
+  getTaskSegments(id) {
+    return request.get(`/tasks/${id}/segments`)
+  },
+
   createTasks(data) {
     return request.post('/tasks/batch', data)
   },
@@ -69,13 +77,22 @@ export default {
     return request.post(`/tasks/${id}/cancel`)
   },
 
+  pauseTask(id) {
+    return request.post(`/tasks/${id}/pause`)
+  },
+
+  resumeTask(id) {
+    return request.post(`/tasks/${id}/resume`)
+  },
+
   deleteTask(id) {
     return request.delete(`/tasks/${id}`)
   },
 
   // 导出
   exportTranscript(taskId, format) {
-    return request.get(`/exports/${taskId}/${format}`, {
+    return request.get(`/tasks/${taskId}/download`, {
+      params: { type: format },
       responseType: 'blob'
     })
   }

@@ -45,7 +45,13 @@ class Database:
         with self.connection() as connection:
             for migration_file in migration_files:
                 schema = migration_file.read_text(encoding="utf-8")
-                connection.executescript(schema)
+                if migration_file.name == "003_task_pause.sql":
+                    columns = {row[1] for row in connection.execute("PRAGMA table_info(processing_task)").fetchall()}
+                    if "pause_requested" not in columns:
+                        connection.execute("ALTER TABLE processing_task ADD COLUMN pause_requested INTEGER NOT NULL DEFAULT 0")
+                    connection.execute("CREATE INDEX IF NOT EXISTS idx_task_pause ON processing_task(status, pause_requested)")
+                else:
+                    connection.executescript(schema)
 
     def fetch_all(self, sql: str, params: tuple[Any, ...] = ()) -> list[sqlite3.Row]:
         """查询多行数据。"""

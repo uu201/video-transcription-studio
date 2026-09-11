@@ -56,6 +56,7 @@ class SenseVoiceProvider:
             # 检查正确位置和嵌套位置的模型
             local_model_path = self.settings.model_dir / "iic" / "SenseVoiceSmall"
             nested_model_path = self.settings.model_dir / "models" / "iic" / "SenseVoiceSmall"
+            snapshot_root = self.settings.model_dir / "models" / self.settings.asr_model.replace("/", "--") / "snapshots"
 
             # 优先使用正确位置的模型
             if local_model_path.exists() and (local_model_path / "model.pt").exists():
@@ -77,6 +78,10 @@ class SenseVoiceProvider:
                 except Exception as e:
                     LOGGER.warning(f"移动模型失败，将使用嵌套位置: {e}")
                     model_path = str(nested_model_path.resolve())
+            elif snapshot_root.is_dir() and any((snapshot / "model.pt").is_file() for snapshot in snapshot_root.iterdir() if snapshot.is_dir()):
+                snapshot_model = next(snapshot for snapshot in snapshot_root.iterdir() if snapshot.is_dir() and (snapshot / "model.pt").is_file())
+                model_path = str(snapshot_model.parent.resolve())
+                LOGGER.info(f"使用 ModelScope 本地快照模型: {model_path}")
             else:
                 # 否则使用模型 ID，会自动下载
                 model_path = self.settings.asr_model

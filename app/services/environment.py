@@ -119,9 +119,6 @@ class EnvironmentChecker:
             database_detail = str(exc)
         items.append({"key": "database", "label": "SQLite 数据库", "status": "ok" if database_ok else "error", "value": "已连接" if database_ok else "不可用", "detail": database_detail})
 
-        writable, writable_detail = self._writable_directory(self.settings.model_dir)
-        items.append({"key": "modelDir", "label": "模型目录", "status": "ok" if writable else "error", "value": "可写" if writable else "不可写", "detail": writable_detail})
-
         # ModelScope 在不同版本中可能把模型放到 model_dir 或 model_dir/models
         # 只检查项目目录下的模型，不包括用户目录缓存，以准确反映项目状态
         model_cache_roots = [self.settings.model_dir, self.settings.model_dir / "models"]
@@ -130,13 +127,24 @@ class EnvironmentChecker:
             """检查模型权重和 ModelScope 临时下载目录。"""
             parts = model_name.split("/")
             candidates = [root.joinpath(*parts) for root in model_cache_roots]
-            existing = next((path for path in candidates if path.is_dir()), None)
+            snapshot_roots = [root / model_name.replace("/", "--") for root in model_cache_roots]
             complete = next((path for path in candidates if (path / "model.pt").is_file()), None)
+            if complete is None:
+                for snapshot_root in snapshot_roots:
+                    if snapshot_root.is_dir():
+                        complete = next(snapshot_root.glob("snapshots/*/model.pt"), None)
+                    if complete:
+                        break
+            existing = next((path for path in candidates + snapshot_roots if path.is_dir()), None)
             if complete:
-                size_bytes = (complete / "model.pt").stat().st_size
+                size_bytes = complete.stat().st_size
                 size_text = f"{size_bytes / (1024 ** 3):.2f} GB" if size_bytes >= 100 * 1024 ** 2 else f"{size_bytes / (1024 ** 2):.1f} MB"
                 return {"key": model_name, "label": label, "status": "ok", "value": "已下载", "detail": f"{size_text} · {complete}"}
-            downloading = any((root.joinpath("._____temp", *parts)).exists() for root in model_cache_roots)
+            downloading = any(
+                (root.joinpath("._____temp", *parts)).exists()
+                or (root / "._____temp" / model_name.replace("/", "--")).exists()
+                for root in model_cache_roots
+            )
             if downloading or existing:
                 return {"key": model_name, "label": label, "status": "warn", "value": "下载中" if downloading else "未完成", "detail": str(existing or candidates[0])}
             return {"key": model_name, "label": label, "status": "warn", "value": "未下载", "detail": f"首次识别时下载到 {candidates[0]}"}

@@ -54,7 +54,7 @@ npm install
 npm run dev
 ```
 
-前端开发服务器会运行在 `http://localhost:5173`，并自动代理 API 请求到后端 `http://localhost:8000`。
+前端开发服务器会运行在 `http://localhost:5173`，并自动代理 API 和 WebSocket 请求到后端 `http://127.0.0.1:8100`。
 
 **确保后端已启动：**
 ```bash
@@ -261,7 +261,7 @@ async function loadData() {
 
 ### 1. API 请求失败
 
-确保后端已启动在 `http://localhost:8000`。
+确保后端已启动在 `http://localhost:8100`。
 
 ### 2. 热更新不生效
 
@@ -290,4 +290,4 @@ npm run build
 python run.py
 ```
 
-3. 访问 `http://localhost:8000`
+3. 访问 `http://localhost:8100`
