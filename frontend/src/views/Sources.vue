@@ -18,7 +18,7 @@
       <ol style="margin: 8px 0 0 20px; line-height: 1.8">
         <li><strong>添加扫描源</strong> - 点击上方「新增扫描源」按钮，配置视频目录</li>
         <li><strong>扫描并选择</strong> - 扫描后会弹窗让您选择要处理的文件</li>
-        <li><strong>查看结果</strong> - 任务完成后在「处理任务」页面查看和导出文案</li>
+        <li><strong>查看结果</strong> - 任务完成后在「转录结果」书架查看和导出文案</li>
       </ol>
     </n-alert>
 

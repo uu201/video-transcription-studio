@@ -65,6 +65,14 @@ export default {
     return request.get(`/tasks/${id}/segments`)
   },
 
+  getResults(params) {
+    return request.get('/results', { params })
+  },
+
+  getTaskAnalyses(id) {
+    return request.get(`/tasks/${id}/analyses`)
+  },
+
   createTasks(data) {
     return request.post('/tasks/batch', data)
   },

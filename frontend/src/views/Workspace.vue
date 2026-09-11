@@ -68,6 +68,7 @@ import {
   Grid as GridOutline,
   FolderOpen as FolderOpenOutline,
   List as ListOutline,
+  LibraryOutline,
   Settings as SettingsOutline,
   Sunny as SunnyOutline,
   Moon as MoonOutline
@@ -101,6 +102,11 @@ const menuOptions = [
     icon: renderIcon(ListOutline)
   },
   {
+    label: '转录结果',
+    key: 'results',
+    icon: renderIcon(LibraryOutline)
+  },
+  {
     label: '系统设置',
     key: 'settings',
     icon: renderIcon(SettingsOutline)
@@ -110,6 +116,7 @@ const menuOptions = [
 const currentRoute = computed(() => {
   const name = route.name
   if (name === 'TaskDetail') return 'tasks'
+  if (name === 'ResultDetail') return 'results'
   return route.path.split('/')[1] || 'overview'
 })
 
@@ -118,6 +125,7 @@ const currentPageTitle = computed(() => {
     overview: '内容处理总览',
     sources: '扫描源配置',
     tasks: '处理任务队列',
+    results: '转录结果书架',
     settings: '系统环境设置'
   }
   return titles[currentRoute.value] || '工作台'

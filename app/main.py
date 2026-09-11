@@ -15,6 +15,7 @@ from app.api.exports import router as exports_router
 from app.api.analyses import router as analyses_router
 from app.api.scan_sources import router as sources_router
 from app.api.tasks import router as tasks_router
+from app.api.results import router as results_router
 from app.api.transfers import router as transfers_router
 from app.config import load_settings
 from app.db.database import Database
@@ -72,6 +73,7 @@ def create_app() -> FastAPI:
     # API 路由
     application.include_router(sources_router)
     application.include_router(tasks_router)
+    application.include_router(results_router)
     application.include_router(exports_router)
     application.include_router(analyses_router)
     application.include_router(transfers_router)

@@ -28,6 +28,16 @@ const routes = [
         component: () => import('@/views/TaskDetail.vue')
       },
       {
+        path: 'results',
+        name: 'Results',
+        component: () => import('@/views/Results.vue')
+      },
+      {
+        path: 'results/:id',
+        name: 'ResultDetail',
+        component: () => import('@/views/TaskDetail.vue')
+      },
+      {
         path: 'settings',
         name: 'Settings',
         component: () => import('@/views/Settings.vue')
