@@ -143,14 +143,25 @@ def start_task(task_id: int, request: Request, db: Database = Depends(database))
 
 @router.post("/{task_id}/retry", status_code=status.HTTP_202_ACCEPTED)
 def retry_task(task_id: int, request: Request, db: Database = Depends(database)) -> dict:
-    """复制失败任务为新的处理记录，保留历史记录。"""
-    row = db.fetch_one("SELECT media_file_id, language, requested_ai, asr_options_json FROM processing_task WHERE id = ?", (task_id,))
+    """在原任务记录上重新排队，避免重复创建任务。"""
+    row = db.fetch_one("SELECT status FROM processing_task WHERE id = ?", (task_id,))
     if not row:
         raise HTTPException(404, "任务不存在")
     now = utc_now()
-    new_id = db.execute("INSERT INTO processing_task (media_file_id, language, requested_ai, asr_options_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)", (row["media_file_id"], row["language"], row["requested_ai"], row["asr_options_json"], now, now))
-    _publish_task_event(request, new_id, status_value=TaskStatus.QUEUED.value, message="等待处理")
-    return {"id": new_id, "status": TaskStatus.QUEUED.value}
+    with db.connection() as connection:
+        changed = connection.execute(
+            "UPDATE processing_task SET status='QUEUED', current_stage='QUEUED', progress=0, message='等待处理', cancel_requested=0, pause_requested=0, error_code=NULL, error_message=NULL, error_detail=NULL, retryable=0, worker_id=NULL, heartbeat_at=NULL, started_at=NULL, finished_at=NULL, updated_at=? WHERE id=? AND status IN ('FAILED','CANCELED')",
+            (now, task_id),
+        ).rowcount
+        if changed == 0:
+            raise HTTPException(409, "任务当前状态不允许重试")
+        connection.execute("DELETE FROM transcript WHERE task_id = ?", (task_id,))
+        connection.execute("DELETE FROM export_record WHERE task_id = ?", (task_id,))
+        connection.execute("DELETE FROM ai_analysis WHERE task_id = ?", (task_id,))
+        connection.execute("DELETE FROM file_transfer WHERE task_id = ?", (task_id,))
+        connection.execute("INSERT INTO task_event (task_id, stage, level, message, created_at) VALUES (?, 'QUEUED', 'INFO', '任务已重新排队', ?)", (task_id, now))
+    _publish_task_event(request, task_id, status_value=TaskStatus.QUEUED.value, message="等待处理", pause_requested=False, cancel_requested=False)
+    return {"id": task_id, "status": TaskStatus.QUEUED.value}
 
 
 @router.post("/{task_id}/pause")

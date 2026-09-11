@@ -231,6 +231,14 @@ class SenseVoiceProvider:
             return 0.0
         return number / 1000 if number > 1000 else number
 
+    @staticmethod
+    def _timestamp_seconds(value: Any) -> float:
+        """FunASR 的句子、词时间戳统一按毫秒转换为秒。"""
+        try:
+            return max(0.0, float(value)) / 1000
+        except (TypeError, ValueError):
+            return 0.0
+
     def transcribe(self, audio_path: Path, language: str, options: dict[str, Any]) -> ASRResult:
         """调用模型并解析文本、时间戳和完整原始结果。"""
         model = self._load_model()
@@ -240,6 +248,7 @@ class SenseVoiceProvider:
                 use_itn=options.get("use_itn", self.settings.asr_use_itn),
                 batch_size_s=options.get("batch_size_s", self.settings.asr_batch_size_s),
                 merge_vad=True, merge_length_s=options.get("merge_length_s", self.settings.asr_merge_length_s),
+                sentence_timestamp=True, output_timestamp=True, return_time_stamps=True,
             )
         except Exception as exc:
             raise AppError("ASR_INFERENCE_FAILED", "语音识别失败", repr(exc), True, "检查音频格式或切换到 CPU 后重试") from exc
@@ -253,20 +262,44 @@ class SenseVoiceProvider:
         for index, item in enumerate(raw, start=1):
             if not isinstance(item, dict):
                 continue
+            sentence_info = item.get("sentence_info") or item.get("sentences") or []
+            if isinstance(sentence_info, list) and sentence_info:
+                for sentence_index, sentence in enumerate(sentence_info, start=1):
+                    if not isinstance(sentence, dict):
+                        continue
+                    text = str(sentence.get("sentence") or sentence.get("text") or "")
+                    text = str(rich_transcription_postprocess(text)).strip()
+                    if text:
+                        texts.append(text)
+                    timestamp = sentence.get("timestamp") or sentence.get("timestamps") or []
+                    start, end = self._segment_bounds(sentence, timestamp)
+                    segments.append(ASRSegment(len(segments) + 1, start, end, text, sentence.get("spk"), sentence.get("confidence")))
+                continue
             text = str(item.get("text", "") or "")
             text = str(rich_transcription_postprocess(text)).strip()
             if text:
                 texts.append(text)
             timestamp = item.get("timestamp") or item.get("timestamps") or []
-            start = end = 0.0
-            if isinstance(timestamp, list) and timestamp:
-                first = timestamp[0]
-                last = timestamp[-1]
-                if isinstance(first, (list, tuple)):
-                    start = self._milliseconds(first[0])
-                if isinstance(last, (list, tuple)) and len(last) > 1:
-                    end = self._milliseconds(last[1])
-            start = self._milliseconds(item.get("start", start))
-            end = self._milliseconds(item.get("end", end)) or start
+            start, end = self._segment_bounds(item, timestamp)
             segments.append(ASRSegment(index, start, end, text, item.get("spk"), item.get("confidence")))
         return ASRResult(language, "\n".join(texts), segments, raw)
+
+    def _segment_bounds(self, item: dict[str, Any], timestamp: Any = None, start: float = 0.0, end: float = 0.0) -> tuple[float, float]:
+        """解析句子或词级时间戳，统一返回秒；缺少结束时间时不伪造 0-0。"""
+        start = self._timestamp_seconds(item["start"]) if "start" in item else start
+        end = self._timestamp_seconds(item["end"]) if "end" in item else end
+        values = timestamp if isinstance(timestamp, list) else []
+        if values:
+            pairs = []
+            for value in values:
+                if isinstance(value, (list, tuple)) and len(value) >= 2:
+                    pairs.append((self._timestamp_seconds(value[0]), self._timestamp_seconds(value[1])))
+                elif isinstance(value, dict):
+                    pairs.append((self._timestamp_seconds(value.get("start", value.get("begin", 0))), self._timestamp_seconds(value.get("end", value.get("finish", 0)))))
+            pairs = [(left, right) for left, right in pairs if right >= left and (left > 0 or right > 0)]
+            if pairs:
+                start = pairs[0][0] if start <= 0 else start
+                end = pairs[-1][1] if end <= 0 else end
+        if end < start:
+            end = start
+        return start, end
