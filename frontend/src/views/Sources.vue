@@ -461,8 +461,8 @@ async function createTasks() {
   creating.value = true
   try {
     await api.createTasks({
-      source_id: currentSourceId.value,
-      file_ids: selectedFiles.value
+      mediaFileIds: selectedFiles.value,
+      language: 'auto'
     })
     message.success(`已创建 ${selectedFiles.value.length} 个处理任务`)
     fileDialogVisible.value = false
