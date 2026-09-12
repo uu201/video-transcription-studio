@@ -5,6 +5,7 @@ import api from '@/api'
 export const useTaskStore = defineStore('task', () => {
   const tasks = ref([])
   const loading = ref(false)
+  let fetchSequence = 0
 
   function replaceRealtimeTasks(incoming) {
     const current = new Map(tasks.value.map(task => [task.id, task]))
@@ -14,7 +15,7 @@ export const useTaskStore = defineStore('task', () => {
   function mergeRealtimeTask(update) {
     const index = tasks.value.findIndex(task => task.id === update.taskId)
     if (index === -1) {
-      fetchTasks()
+      fetchTasks({ merge: true })
       return
     }
     const current = tasks.value[index]
@@ -53,10 +54,20 @@ export const useTaskStore = defineStore('task', () => {
   })
 
   async function fetchTasks() {
+    const requestSequence = ++fetchSequence
     loading.value = true
     try {
       const data = await api.getTasks()
-      tasks.value = data
+      if (requestSequence === fetchSequence) {
+        const current = new Map(tasks.value.map(task => [task.id, task]))
+        tasks.value = data.map(task => {
+          const previous = current.get(task.id)
+          if (!previous || !previous.updatedAt || !task.updatedAt || Date.parse(task.updatedAt) >= Date.parse(previous.updatedAt)) {
+            return { ...previous, ...task }
+          }
+          return previous
+        })
+      }
     } catch (error) {
       console.error('Failed to fetch tasks:', error)
     } finally {

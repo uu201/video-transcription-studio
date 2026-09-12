@@ -76,6 +76,17 @@ class TaskWorkerPool:
                 "INSERT INTO task_event (task_id, stage, level, message, detail, created_at) VALUES (?, 'QUEUED', 'WARNING', '任务已恢复排队', '检测到上次服务在转录过程中停止，将从头重新处理', ?)",
                 [(row["id"], now) for row in rows],
             )
+            if self.event_hub:
+                for row in rows:
+                    self.event_hub.publish({
+                        "type": "task.updated",
+                        "taskId": int(row["id"]),
+                        "status": "QUEUED",
+                        "stage": "QUEUED",
+                        "progress": 0,
+                        "message": "上次服务中断，已重新排队",
+                        "at": now,
+                    })
         LOGGER.warning("检测到 %d 个未完成任务，已恢复到等待队列", len(rows))
 
     def stop(self) -> None:
@@ -90,6 +101,24 @@ class TaskWorkerPool:
         # 等待所有 Worker 完成
         for worker in self.workers:
             worker.stop()
+
+        # Any task claimed but not started by a worker must be available on the
+        # next process start instead of being left RUNNING indefinitely.
+        reset_ids = []
+        with self.database.connection() as connection:
+            now = utc_now()
+            reset_ids = [row["id"] for row in connection.execute("SELECT id FROM processing_task WHERE status='RUNNING' AND finished_at IS NULL").fetchall()]
+            connection.execute(
+                "UPDATE processing_task SET status='QUEUED', current_stage='QUEUED', message='服务停止，已重新排队', worker_id=NULL, heartbeat_at=NULL, updated_at=? WHERE status='RUNNING' AND finished_at IS NULL",
+                (now,),
+            )
+            connection.executemany(
+                "INSERT INTO task_event (task_id, stage, level, message, created_at) VALUES (?, 'QUEUED', 'WARNING', '服务停止，任务已重新排队', ?)",
+                [(task_id, now) for task_id in reset_ids],
+            )
+        if self.event_hub:
+            for task_id in reset_ids:
+                self.event_hub.publish({"type": "task.updated", "taskId": int(task_id), "status": "QUEUED", "stage": "QUEUED", "message": "服务停止，已重新排队", "at": now})
 
         if self._dispatcher_thread:
             self._dispatcher_thread.join(timeout=3)
@@ -198,7 +227,7 @@ class TaskWorker:
                 now = utc_now()
                 with self.database.connection() as connection:
                     connection.execute(
-                        "UPDATE processing_task SET worker_id = ?, message = '开始处理', heartbeat_at = ?, updated_at = ? WHERE id = ?",
+                        "UPDATE processing_task SET worker_id = ?, message = '开始处理', heartbeat_at = ?, updated_at = ? WHERE id = ? AND status = 'RUNNING'",
                         (self.worker_id, now, now, task_id)
                     )
 
@@ -213,5 +242,9 @@ class TaskWorker:
                 continue
             except Exception as e:
                 LOGGER.error(f"Worker {self.worker_id} 处理任务异常: {e}", exc_info=True)
+                try:
+                    self.task_queue.task_done()
+                except ValueError:
+                    pass
 
         LOGGER.info(f"Worker {self.worker_id} 已停止")

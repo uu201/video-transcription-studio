@@ -14,6 +14,23 @@ class TaskStatus(str, Enum):
     PAUSED = "PAUSED"
 
 
+TASK_TRANSITIONS: dict[TaskStatus, frozenset[TaskStatus]] = {
+    TaskStatus.QUEUED: frozenset({TaskStatus.RUNNING, TaskStatus.PAUSED, TaskStatus.CANCELED}),
+    TaskStatus.RUNNING: frozenset({TaskStatus.PAUSED, TaskStatus.SUCCEEDED, TaskStatus.FAILED, TaskStatus.CANCELED}),
+    TaskStatus.PAUSED: frozenset({TaskStatus.QUEUED, TaskStatus.CANCELED}),
+    TaskStatus.FAILED: frozenset({TaskStatus.QUEUED}),
+    TaskStatus.CANCELED: frozenset({TaskStatus.QUEUED}),
+    TaskStatus.SUCCEEDED: frozenset(),
+}
+
+
+def can_transition(current: str | TaskStatus, target: str | TaskStatus) -> bool:
+    """Return whether a task lifecycle transition is allowed."""
+    current_status = TaskStatus(current)
+    target_status = TaskStatus(target)
+    return target_status in TASK_TRANSITIONS[current_status]
+
+
 class TaskStage(str, Enum):
     """页面展示的处理阶段。"""
 

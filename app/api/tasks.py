@@ -79,6 +79,9 @@ def create_task(payload: TaskInput, request: Request, db: Database = Depends(dat
     now = utc_now()
     task_id = db.execute("INSERT INTO processing_task (media_file_id, requested_ai, language, asr_options_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)", (payload.mediaFileId, int(payload.requestedAi), payload.language, json.dumps(payload.asrOptions), now, now))
     _publish_task_event(request, task_id, status_value=TaskStatus.QUEUED.value, message="等待处理")
+    worker = getattr(request.app.state, "worker", None)
+    if worker:
+        worker.notify_new_task()
     return {"id": task_id, "status": TaskStatus.QUEUED.value}
 
 
@@ -115,6 +118,9 @@ def create_tasks(payload: BatchTaskInput, request: Request, db: Database = Depen
             created_ids.append(cursor.lastrowid)
     for task_id in created_ids:
         _publish_task_event(request, task_id, status_value=TaskStatus.QUEUED.value, message="等待处理")
+    worker = getattr(request.app.state, "worker", None)
+    if worker and created_ids:
+        worker.notify_new_task()
     return {"created": len(created_ids), "taskIds": created_ids, "skippedMediaIds": skipped_ids}
 
 
