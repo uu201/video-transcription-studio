@@ -27,7 +27,11 @@ class OpenAICompatibleProvider:
 
     def generate(self, prompt: str, options: dict[str, Any]) -> dict[str, Any]:
         """请求兼容接口并抽取统一结果。"""
-        payload = {"model": options.get("model", self.model), "messages": [{"role": "user", "content": prompt}], "temperature": options.get("temperature", 0.3)}
+        messages = []
+        if options.get("system_prompt"):
+            messages.append({"role": "system", "content": options["system_prompt"]})
+        messages.append({"role": "user", "content": prompt})
+        payload = {"model": options.get("model", self.model), "messages": messages, "temperature": options.get("temperature", 0.3)}
         if options.get("max_tokens") is not None:
             payload["max_tokens"] = int(options["max_tokens"])
         try:

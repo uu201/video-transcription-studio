@@ -78,19 +78,57 @@ class AIWorkerPool:
         requested_types = json.loads(row['analysis_types_json'] or '["SUMMARY","CONCLUSION"]')
         analysis_types = AIAnalysisQueueService.normalize_types(requested_types) or ['SUMMARY', 'CONCLUSION']
         labels = {'SUMMARY': '摘要', 'CONCLUSION': '总结'}
-        prompt = (
-            '你是一名严谨的中文内容编辑。请严格依据“转录内容”进行整理，只能使用原文明确表达的信息，禁止补充原文没有的事实、数字、人物、地点、因果关系或建议。'
-            '请只输出一个合法 JSON 对象，不要输出 Markdown 代码块、前言或其他文字。'
-            'JSON 必须包含以下键，键名必须完全一致：'
-            + ', '.join(f'{kind}（{labels[kind]}）' for kind in analysis_types)
-            + '。每个键的值必须是中文纯文本字符串，可以使用换行和 Markdown 小标题。'
-            + '\n对 SUMMARY（摘要）的要求：用 3-6 句话压缩说明主题、背景、关键事实、主要观点和结论；保留原文中的关键数字、时间、地点和案例，不要写空泛评价。'
-            + '\n对 CONCLUSION（总结）的要求：对原文进行完整、忠实、结构化归纳，至少覆盖“讨论背景/案例事实、投入或问题、核心矛盾、作者的判断依据、行动原则或建议”（仅在原文提到时写）；可以分段或列点，但不要扩展成原文之外的鸡汤。'
-            + '\n摘要必须短， 总结必须完整；二者不能互相替代。不要逐句复述口语，不要输出“根据这段文字”等套话。'
-            + '\n\n转录内容：\n' + text
-        )
+        prompt_parts = [
+            '你是一名擅长分析中文知识类/商业类/个人成长类口播内容的内容分析师。',
+            '请严格依据原文分析，不要补充原文没有的事实、数字、人物、地点、因果关系或建议。',
+            '请只输出一个合法 JSON 对象，不要输出 JSON 之外的前言、解释或 Markdown 代码围栏。',
+            'JSON 必须包含以下键，键名必须完全一致：' + ', '.join(f'{kind}（{labels[kind]}）' for kind in analysis_types) + '。',
+            '每个键的值必须是中文字符串，可以使用换行和 Markdown 小标题。',
+        ]
+        if 'SUMMARY' in analysis_types:
+            prompt_parts.append(
+                'SUMMARY（摘要）：用 3-6 句话压缩说明主题、背景、关键事实、主要观点和结论；保留原文中的关键数字、时间、地点和案例，不要写空泛评价。'
+            )
+        if 'CONCLUSION' in analysis_types:
+            prompt_parts.append(
+                '''CONCLUSION（总结）请严格按照以下结构输出，不要遗漏章节：
+# 1. 核心主题
+用一句话说明这段内容到底在讲什么。
+
+# 2. 核心观点
+提炼作者最重要的 3-8 个观点。每个观点都要按照“观点、作者为什么这么认为、原文中的案例/论据、最终结论”进行整理，并明确案例服务于哪个观点。
+
+# 3. 作者的底层逻辑
+分析这些观点背后共同遵循的逻辑，不要重复观点，要回答“作者到底是用什么标准判断问题的”。
+
+# 4. 典型错误/反面案例
+提炼作者批评的典型行为，并说明为什么作者认为这种行为有问题。
+
+# 5. 正确做法
+将作者的观点转换成具体可执行的行为，但只能使用原文已经表达或明确推导出的内容。
+
+# 6. 完整逻辑链
+使用“目标 → 问题 → 原因 → 判断标准 → 行动 → 结果”重新组织全文逻辑。
+
+# 7. 一句话总结
+用一句非常简洁的话概括全文。
+
+# 8. 可传播金句
+从原文观点中提炼 5-10 条具有传播性的表达，可以适当压缩，但不要改变原意。
+
+总结要求：去除“啊、嗯、对吧、然后”等口语废话；修正明显的语音识别错误；不要按照原文流水账复述；保留作者强烈、直接、具有争议性的观点，不要为了客观而弱化；区分作者观点和客观事实；最终让没有看过原视频的人也能快速理解内容。'''
+            )
+        prompt_parts.append('\n原文：\n' + text)
+        prompt = '\n\n'.join(prompt_parts)
         self._set_progress(task_id, 25, '等待 AI 返回')
-        result=provider.generate(prompt, {'temperature': 0.2, 'max_tokens': 4096})
+        result=provider.generate(prompt, {
+            'temperature': 0.2,
+            'system_prompt': (
+                '你是严谨的中文知识类、商业类和个人成长类内容分析师。'
+                '你必须忠实理解用户提供的转录原文，区分原文事实与作者观点，'
+                '不得臆测、补充或弱化作者没有明确表达的内容。'
+            ),
+        })
         state = self.database.fetch_one("SELECT cancel_requested, pause_requested FROM ai_analysis_task WHERE id=?", (task_id,))
         if state and state['cancel_requested']:
             self.repo.update(task_id,status='CANCELED',message='已取消',finished_at=utc_now())
