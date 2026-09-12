@@ -1,35 +1,69 @@
+# 视频转录工作台主配置文件。
+# 相对路径均以项目根目录为基准；部分关键配置支持 VIDEO_TEXT_* 环境变量覆盖。
+
 server:
+  # Web 服务监听地址。127.0.0.1 仅允许本机访问，改为 0.0.0.0 可供局域网访问。
   host: 127.0.0.1
+  # Web 服务端口。
   port: 8100
+
 database:
+  # SQLite 数据库文件，保存素材、任务、转写结果和 AI 分析记录。
   path: data/video_content.db
+
 paths:
+  # 转录完成后生成的 TXT、JSON、SRT 等结果目录。
   result_dir: data/results
+  # 音频提取和处理过程中的临时缓存目录。
   cache_dir: data/cache
+  # SenseVoice 和 FSMN-VAD 模型的本地缓存目录。
   model_dir: data/models
+  # 应用日志目录。
   log_dir: data/logs
+
 worker:
+  # Worker 检查任务队列的间隔，单位为秒。
   poll_interval_seconds: 2
+  # 任务并发配置；实际转录 Worker 数量由 worker_count 或环境变量控制。
   max_concurrency: 1
+  # 超过该时间没有心跳的任务会被视为失联，单位为秒。
   stale_task_timeout_seconds: 1800
+
 media:
   ffmpeg:
+    # 是否优先使用项目 runtime 目录中的内置 FFmpeg。
     bundled: true
+    # 外部 FFmpeg 目录；也可使用 VIDEO_TEXT_FFMPEG_DIR 环境变量覆盖。
     external_dir: null
+
 asr:
+  # 语音识别 Provider，当前内置实现为 SenseVoice。
   provider: sensevoice
+  # SenseVoice 模型名称或本地模型标识。
   model: iic/SenseVoiceSmall
+  # 推理设备，可选 cpu 或 cuda。
   device: cpu
+  # 识别语言，auto 表示由模型自动判断。
   language: auto
+  # 是否启用逆文本正则化，将数字和标点转换为更适合阅读的形式。
   use_itn: true
+  # 单次批处理的音频时长，单位为秒；数值越大通常吞吐越高，但占用内存更多。
   batch_size_s: 30
+  # 是否合并语音活动检测得到的相邻片段。
   merge_vad: true
+  # 合并片段的最大时长，单位为秒。
   merge_length_s: 15
+  # 单个语音片段的最大时长，单位为毫秒。
   max_single_segment_time_ms: 30000
+  # 是否关闭 FunASR 推理进度条。
   disable_pbar: true
+  # 是否关闭 FunASR 详细日志。
   disable_log: true
+  # 是否关闭模型版本检查和自动更新提示。
   disable_update: true
+
 ai:
+  # AI Provider 默认启用开关；设置页保存的 AI 配置优先于此默认值。
   enabled: false
-  # AI 推理可能需要较长时间，避免默认 60 秒读取超时。
+  # AI 推理可能需要较长时间，避免默认 60 秒读取超时，单位为秒。
   timeout_seconds: 300
