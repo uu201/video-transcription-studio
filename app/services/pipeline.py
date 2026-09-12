@@ -73,6 +73,22 @@ class PipelineService:
             self.event_hub.publish({"type": "task.updated", "taskId": task_id, "status": "PAUSED", "message": "已暂停", "at": now})
         raise TaskPaused()
 
+    def _ai_provider_enabled(self) -> bool:
+        """读取设置页保存的 AI 开关，兼容旧版配置文件开关。"""
+        enabled = self.settings.ai_enabled
+        row = self.database.fetch_one("SELECT value_json FROM app_setting WHERE key='system_settings'")
+        if not row:
+            return enabled
+        try:
+            saved = json.loads(row["value_json"] or "{}")
+            ai_config = saved.get("aiConfig") or {}
+            if "enabled" in ai_config:
+                value = ai_config["enabled"]
+                return value if isinstance(value, bool) else str(value).strip().lower() in {"1", "true", "yes", "on"}
+        except (TypeError, ValueError, AttributeError):
+            LOGGER.warning("读取 AI Provider 设置失败，将使用配置文件开关")
+        return enabled
+
     def process(self, task_id: int) -> None:
         """执行单个任务，统一分类异常并清理临时目录。"""
         task = self.database.fetch_one("SELECT t.*, m.path, m.file_name, m.extension FROM processing_task t JOIN media_file m ON m.id = t.media_file_id WHERE t.id = ?", (task_id,))
@@ -108,8 +124,12 @@ class PipelineService:
             self._update(task_id, TaskStage.SAVING, 85)
             self._save_transcript(task_id, asr_result, clean_text)
             ai_setting = self.database.fetch_one("SELECT value_json FROM app_setting WHERE key='ai_analysis'")
-            ai_config = json.loads(ai_setting["value_json"]) if ai_setting else {"mode": "manual", "autoTypes": []}
-            if task["requested_ai"] and self.settings.ai_enabled and ai_config.get("mode") == "auto":
+            try:
+                ai_config = json.loads(ai_setting["value_json"] or "{}") if ai_setting else {"mode": "manual", "autoTypes": []}
+            except (TypeError, ValueError):
+                ai_config = {"mode": "manual", "autoTypes": []}
+                LOGGER.warning("任务 #%s 的 AI 分析设置无效，跳过自动分析", task_id)
+            if self._ai_provider_enabled() and ai_config.get("mode") == "auto":
                 try:
                     transcript = self.database.fetch_one("SELECT id FROM transcript WHERE task_id = ?", (task_id,))
                     if transcript:
