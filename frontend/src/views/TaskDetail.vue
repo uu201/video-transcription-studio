@@ -134,9 +134,21 @@
             <n-empty v-else description="没有原始文本可显示" />
           </n-tab-pane>
           <n-tab-pane name="json" tab="完整 JSON">
-            <div v-if="transcript" class="transcript-box json-box">
-              {{ JSON.stringify(transcript, null, 2) }}
+            <div v-if="jsonLoading" class="json-loading">
+              <n-spin size="small" />
+              <n-text depth="3">正在生成 JSON...</n-text>
             </div>
+            <n-alert v-else-if="jsonError" type="error" :show-icon="false">
+              {{ jsonError }}
+            </n-alert>
+            <textarea
+              v-else-if="jsonText"
+              class="transcript-box json-box"
+              :value="jsonText"
+              readonly
+              spellcheck="false"
+              aria-label="完整 JSON"
+            />
             <n-empty v-else description="转写结果记录不存在" />
           </n-tab-pane>
         </n-tabs>
@@ -145,8 +157,12 @@
       <!-- AI 处理结果 -->
       <n-card v-if="task.status === 'SUCCEEDED' && isResultDetail" title="AI 处理结果">
         <template #header-extra>
-          <n-tag v-if="analyses.length > 0" type="success" size="small">{{ analyses.length }} 项结果</n-tag>
-          <n-tag v-else type="default" size="small">尚未生成</n-tag>
+          <n-space align="center">
+            <n-tag v-if="analyses.length > 0" type="success" size="small">{{ analyses.length }} 项结果</n-tag>
+            <n-tag v-else type="default" size="small">尚未生成</n-tag>
+            <n-select v-model:value="selectedAnalysisTypes" multiple size="small" :options="analysisOptions" style="min-width: 220px" placeholder="选择分析类型" />
+            <n-button size="small" type="primary" secondary :loading="creatingAi" :disabled="!selectedAnalysisTypes.length" @click="createAiAnalysis">发起分析</n-button>
+          </n-space>
         </template>
 
         <n-space v-if="analyses.length > 0" vertical :size="12" style="width: 100%">
@@ -166,7 +182,10 @@
               </n-space>
             </template>
             <template #header-extra>
-              <n-text depth="3" style="font-size: 12px">{{ formatDateTime(analysis.createdAt) }}</n-text>
+              <n-space align="center">
+                <n-text depth="3" style="font-size: 12px">{{ formatDateTime(analysis.createdAt) }}</n-text>
+                <n-button v-if="analysis.status === 'SUCCEEDED'" text size="tiny" type="primary" @click="handleReanalyze(analysis)">重新分析</n-button>
+              </n-space>
             </template>
             <div class="analysis-content">{{ analysis.content || '该分析暂无可显示内容' }}</div>
             <n-text v-if="analysis.providerName || analysis.model" depth="3" class="analysis-meta">
@@ -196,26 +215,33 @@
         />
       </n-card>
 
-      <!-- 处理流程时间线 -->
-      <n-card title="处理全流程时间线">
-        <n-timeline v-if="pipeline.length > 0">
-          <n-timeline-item
-            v-for="(step, idx) in pipeline"
-            :key="`${step.createdAt}-${idx}`"
-            :type="step.type"
-            :title="step.title"
-            :content="step.content"
-            :time="formatDateTime(step.createdAt)"
-          />
-        </n-timeline>
-        <n-empty v-else description="暂无处理事件记录" />
-      </n-card>
+      <!-- 分离后的处理时间线 -->
+      <n-grid :cols="2" :x-gap="16" responsive="screen">
+        <n-gi>
+          <n-card class="timeline-card transcription-timeline" title="转录流程时间线">
+            <template #header-extra><n-tag :type="statusTypeMap[task.status] || 'default'" size="small">{{ statusLabelMap[task.status] || '等待处理' }}</n-tag></template>
+            <n-timeline v-if="transcriptionPipeline.length">
+              <n-timeline-item v-for="(step, idx) in transcriptionPipeline" :key="`${step.createdAt}-${idx}`" :type="step.type" :title="step.title" :content="step.content" :time="formatDateTime(step.createdAt)" />
+            </n-timeline>
+            <n-empty v-else description="暂无转录事件记录" />
+          </n-card>
+        </n-gi>
+        <n-gi>
+          <n-card class="timeline-card ai-timeline" title="AI 分析流程时间线">
+            <template #header-extra><n-tag :type="aiTimelineType" size="small">{{ aiTimelineLabel }}</n-tag></template>
+            <n-timeline v-if="aiTimeline.length">
+              <n-timeline-item v-for="(step, idx) in aiTimeline" :key="`${step.id}-${idx}`" :type="step.type" :title="step.title" :content="step.content" :time="formatDateTime(step.createdAt)" />
+            </n-timeline>
+            <n-empty v-else description="尚未加入 AI 分析队列" />
+          </n-card>
+        </n-gi>
+      </n-grid>
     </n-space>
   </n-spin>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, toRaw } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useMessage, useDialog } from 'naive-ui'
 import {
@@ -240,7 +266,17 @@ const taskStore = useTaskStore()
 const loading = ref(false)
 const task = ref(null)
 const activeTab = ref('clean')
+const jsonText = ref('')
+const jsonLoading = ref(false)
+const jsonError = ref('')
+let jsonRequestId = 0
 const analyses = ref([])
+const aiTasks = ref([])
+const creatingAi = ref(false)
+const selectedAnalysisTypes = ref(['SUMMARY', 'CONCLUSION'])
+const analysisOptions = [
+  { label: '摘要', value: 'SUMMARY' }, { label: '总结', value: 'CONCLUSION' }
+]
 const isResultDetail = computed(() => route.name === 'ResultDetail' || route.path.startsWith('/results/'))
 
 const mediaInfo = computed(() => {
@@ -256,12 +292,91 @@ const transcript = computed(() => task.value?.transcript || null)
 const cleanText = computed(() => transcript.value?.cleanText?.trim() || '')
 const rawText = computed(() => transcript.value?.rawText?.trim() || '')
 const segments = computed(() => task.value?.segments || [])
+
+function stringifyInWorker(value) {
+  if (typeof Worker === 'undefined' || typeof Blob === 'undefined' || typeof URL === 'undefined') {
+    return Promise.reject(new Error('当前环境不支持后台 JSON 处理'))
+  }
+
+  return new Promise((resolve, reject) => {
+    let worker
+    let objectUrl
+    const cleanup = () => {
+      worker?.terminate()
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+
+    try {
+      const source = 'self.onmessage = function (event) { try { self.postMessage({ value: JSON.stringify(event.data, null, 2) }) } catch (error) { self.postMessage({ error: error && error.message ? error.message : String(error) }) } }'
+      objectUrl = URL.createObjectURL(new Blob([source], { type: 'application/javascript' }))
+      worker = new Worker(objectUrl)
+      worker.onmessage = ({ data }) => {
+        cleanup()
+        data?.error ? reject(new Error(data.error)) : resolve(data?.value || '')
+      }
+      worker.onerror = (event) => {
+        cleanup()
+        reject(new Error(event.message || '后台 JSON 处理失败'))
+      }
+      worker.postMessage(value)
+    } catch (error) {
+      cleanup()
+      reject(error)
+    }
+  })
+}
+
+async function prepareJson() {
+  const requestId = ++jsonRequestId
+  const value = transcript.value
+  jsonText.value = ''
+  jsonError.value = ''
+  if (!value) {
+    jsonLoading.value = false
+    return
+  }
+
+  jsonLoading.value = true
+  try {
+    // Vue stores reactive proxies; strip the proxy before handing data to Worker.
+    const result = await stringifyInWorker(toRaw(value))
+    if (requestId === jsonRequestId) jsonText.value = result
+  } catch (error) {
+    // Keep older WebViews usable when Worker/blob URLs are unavailable.
+    await new Promise(resolve => setTimeout(resolve, 0))
+    if (requestId === jsonRequestId) {
+      try {
+        jsonText.value = JSON.stringify(toRaw(value), null, 2)
+      } catch (fallbackError) {
+        jsonError.value = `JSON 生成失败：${fallbackError?.message || error?.message || '未知错误'}`
+      }
+    }
+  } finally {
+    if (requestId === jsonRequestId) jsonLoading.value = false
+  }
+}
+
+watch(activeTab, (tab) => {
+  if (tab === 'json') prepareJson()
+  else {
+    jsonRequestId += 1
+    jsonLoading.value = false
+  }
+})
+
+onBeforeUnmount(() => {
+  jsonRequestId += 1
+})
 const pipeline = computed(() => (task.value?.events || []).map(event => ({
   type: event.level === 'ERROR' ? 'error' : (event.level === 'SUCCESS' ? 'success' : 'default'),
-  title: event.message || event.stage || '处理事件',
-  content: event.detail || event.stage || '',
+  title: event.message || stageLabelMap[event.stage] || '处理事件',
+  content: event.detail || stageLabelMap[event.stage] || '',
   createdAt: event.createdAt
 })))
+const transcriptionPipeline = computed(() => pipeline.value.filter(step => !String(step.title).includes('AI') && !String(step.content).includes('AI')))
+const aiTimeline = computed(() => aiTasks.value.map(item => ({ id: item.id, type: item.status === 'FAILED' ? 'error' : item.status === 'SUCCEEDED' ? 'success' : item.status === 'CANCELED' ? 'error' : 'default', title: `${analysisTypeLabel(item.analysisType)}：${analysisStatusLabel(item.status)}`, content: item.message || '等待分析', createdAt: item.updatedAt || item.createdAt })))
+const aiTimelineLabel = computed(() => aiTasks.value.length ? (aiTasks.value.some(item => item.status === 'RUNNING') ? '分析中' : aiTasks.value.every(item => item.status === 'SUCCEEDED' ? '已完成' : '')) : '尚未加入')
+const aiTimelineType = computed(() => aiTasks.value.some(item => item.status === 'FAILED') ? 'error' : aiTasks.value.length && aiTasks.value.every(item => item.status === 'SUCCEEDED') ? 'success' : 'warning')
 
 const statusTypeMap = {
   QUEUED: 'default',
@@ -295,11 +410,12 @@ const stageLabelMap = {
 }
 
 const analysisTypeLabels = {
+  full: '摘要和总结',
   summary: '内容摘要',
-  outline: '内容大纲',
-  keywords: '关键词',
-  chapters: '章节整理',
-  translation: '翻译结果'
+  conclusion: '内容总结',
+  outline: '内容总结',
+  key_points: '内容总结',
+  quotes: '内容总结'
 }
 
 function analysisTypeLabel(value) {
@@ -307,7 +423,7 @@ function analysisTypeLabel(value) {
 }
 
 function analysisStatusLabel(value) {
-  return ({ SUCCEEDED: '已完成', RUNNING: '处理中', FAILED: '失败', DISABLED: '未启用' })[value] || value || '未知状态'
+  return ({ SUCCEEDED: '已完成', RUNNING: '处理中', QUEUED: '等待处理', PAUSED: '已暂停', FAILED: '失败', CANCELED: '已取消', DISABLED: '未启用' })[value] || '未知状态'
 }
 
 function analysisStatusType(value) {
@@ -372,6 +488,7 @@ async function loadTask() {
       api.getTaskAnalyses(id).catch(() => [])
     ])
     analyses.value = Array.isArray(analysesResult) ? analysesResult : []
+    aiTasks.value = transcriptResult?.id ? await api.getAiTasks({ transcriptId: transcriptResult.id }).catch(() => []) : []
     task.value = { ...detail, transcript: transcriptResult, segments: segmentsResult }
   } catch (error) {
     message.error('加载任务详情失败')
@@ -427,6 +544,36 @@ async function handleExport(format) {
 onMounted(() => {
   loadTask()
 })
+
+async function handleReanalyze(analysis) {
+  try {
+    const tasks = await api.getAiTasks({ transcriptId: transcript.value?.id })
+    const taskItem = tasks.find(item => item.status === 'SUCCEEDED' && (item.analysisType === 'FULL' || item.analysisType === analysis.analysisType))
+    if (!taskItem) throw new Error('分析任务不存在')
+    await api.reanalyzeAiTask(taskItem.id)
+    message.success('已重新加入 AI 分析队列')
+    await loadTask()
+  } catch (error) {
+    message.error('重新分析失败')
+  }
+}
+
+async function createAiAnalysis() {
+  if (!transcript.value?.id) {
+    message.warning('转录结果尚未生成')
+    return
+  }
+  creatingAi.value = true
+  try {
+    const result = await api.createAiAnalysis(transcript.value.id, { analysisTypes: selectedAnalysisTypes.value })
+    message.success(result.created ? `已加入 ${result.created} 个 AI 分析任务` : '分析任务已在队列中')
+    await loadTask()
+  } catch (error) {
+    message.error(error?.response?.data?.detail || '创建 AI 分析任务失败')
+  } finally {
+    creatingAi.value = false
+  }
+}
 </script>
 
 <style scoped>
@@ -458,6 +605,20 @@ onMounted(() => {
 .json-box {
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 12px;
+  margin: 0;
+  width: 100%;
+  height: 400px;
+  box-sizing: border-box;
+  resize: vertical;
+  display: block;
+}
+
+.json-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 80px;
+  justify-content: center;
 }
 
 .analysis-content {

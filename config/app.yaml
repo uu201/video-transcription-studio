@@ -31,3 +31,5 @@ asr:
   disable_update: true
 ai:
   enabled: false
+  # AI 推理可能需要较长时间，避免默认 60 秒读取超时。
+  timeout_seconds: 300

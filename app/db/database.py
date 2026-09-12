@@ -50,6 +50,10 @@ class Database:
                     if "pause_requested" not in columns:
                         connection.execute("ALTER TABLE processing_task ADD COLUMN pause_requested INTEGER NOT NULL DEFAULT 0")
                     connection.execute("CREATE INDEX IF NOT EXISTS idx_task_pause ON processing_task(status, pause_requested)")
+                elif migration_file.name == "006_ai_analysis_bundle.sql":
+                    columns = {row[1] for row in connection.execute("PRAGMA table_info(ai_analysis_task)").fetchall()}
+                    if "analysis_types_json" not in columns:
+                        connection.execute("ALTER TABLE ai_analysis_task ADD COLUMN analysis_types_json TEXT NOT NULL DEFAULT '[\"SUMMARY\",\"CONCLUSION\"]'")
                 else:
                     connection.executescript(schema)
 

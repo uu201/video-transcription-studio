@@ -349,9 +349,9 @@ const columns = [
 const aiColumns = [
   { title: '任务编号', key: 'id', width: 100 },
   { title: '素材文件', key: 'fileName', ellipsis: { tooltip: true } },
-  { title: '分析类型', key: 'analysisType', width: 130 },
+  { title: '分析类型', key: 'analysisType', width: 130, render: row => ({ FULL: '摘要和总结', SUMMARY: '摘要', CONCLUSION: '总结', OUTLINE: '总结', KEY_POINTS: '总结', QUOTES: '总结' }[row.analysisType] || row.analysisType) },
   { title: '状态', key: 'status', width: 100, render: row => h(NTag, { type: row.status === 'SUCCEEDED' ? 'success' : row.status === 'FAILED' ? 'error' : 'warning', size: 'small' }, { default: () => ({ QUEUED: '等待处理', RUNNING: '分析中', SUCCEEDED: '已完成', FAILED: '失败', CANCELED: '已取消' }[row.status] || row.status) }) },
-  { title: '进度', key: 'progress', width: 130, render: row => h('span', `${safeProgress(row.progress)}%`) },
+  { title: '阶段进度', key: 'progress', width: 130, render: row => h('span', `${safeProgress(row.progress)}%`) },
   { title: '提示', key: 'message', ellipsis: { tooltip: true } },
   {
     title: '操作', key: 'actions', width: 220,

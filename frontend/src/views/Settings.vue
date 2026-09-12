@@ -134,10 +134,29 @@
           </n-gi>
           <n-gi>
             <n-form-item label="模型名称">
-              <n-input v-model:value="aiConfig.model_name" placeholder="gpt-4o-mini" />
+              <n-space vertical style="width: 100%" :size="8">
+                <n-select v-model:value="aiConfig.model_name" :options="modelOptions" filterable tag :loading="loadingModels" placeholder="先加载模型或手动输入" />
+                <n-button size="small" secondary :loading="loadingModels" @click="loadModels">加载模型</n-button>
+              </n-space>
             </n-form-item>
           </n-gi>
         </n-grid>
+
+        <n-divider />
+        <n-form-item label="转录完成后的 AI 分析方式">
+          <n-radio-group v-model:value="aiSettings.mode">
+            <n-radio-button value="none">不自动分析</n-radio-button>
+            <n-radio-button value="manual">手动选择分析</n-radio-button>
+            <n-radio-button value="auto">自动加入分析队列</n-radio-button>
+          </n-radio-group>
+        </n-form-item>
+        <n-form-item v-if="aiSettings.mode === 'auto'" label="自动分析类型">
+          <n-checkbox-group v-model:value="aiSettings.autoTypes">
+            <n-space>
+              <n-checkbox v-for="option in analysisTypeOptions" :key="option.value" :value="option.value" :label="option.label" />
+            </n-space>
+          </n-checkbox-group>
+        </n-form-item>
 
         <div class="provider-actions">
           <n-button type="primary" secondary :loading="testing" @click="testAi">测试接口连通性</n-button>
@@ -159,6 +178,8 @@ const message = useMessage()
 const saving = ref(false)
 const checking = ref(false)
 const testing = ref(false)
+const loadingModels = ref(false)
+const modelOptions = ref([])
 
 const settings = ref({
   asr_device: 'cpu',
@@ -176,6 +197,10 @@ const aiConfig = ref({
   api_key: '',
   model_name: ''
 })
+const aiSettings = ref({ mode: 'manual', autoTypes: ['SUMMARY', 'CONCLUSION'] })
+const analysisTypeOptions = [
+  { label: '摘要', value: 'SUMMARY' }, { label: '总结', value: 'CONCLUSION' }
+]
 
 const deviceOptions = [
   { label: 'CPU (通用低负载)', value: 'cpu' },
@@ -207,13 +232,19 @@ const railStyle = ({ focused, checked }) => {
 
 async function loadSettings() {
   try {
+    const saved = await api.getSystemSettings()
     const data = await api.getSystemInfo()
-    if (data.settings) {
+    if (saved.settings && Object.keys(saved.settings).length) {
+      settings.value = { ...settings.value, ...saved.settings }
+    } else if (data.settings) {
       settings.value = { ...settings.value, ...data.settings }
     }
-    if (data.ai_config) {
+    if (saved.aiConfig && Object.keys(saved.aiConfig).length) {
+      aiConfig.value = { ...aiConfig.value, ...saved.aiConfig }
+    } else if (data.ai_config) {
       aiConfig.value = { ...aiConfig.value, ...data.ai_config }
     }
+    aiSettings.value = { ...aiSettings.value, ...(saved.aiSettings || await api.getAiSettings()) }
   } catch (error) {
     console.error('Failed to load settings:', error)
   }
@@ -222,7 +253,7 @@ async function loadSettings() {
 async function handleSave() {
   saving.value = true
   try {
-    // TODO: 实现保存设置的 API
+    await api.saveSystemSettings({ settings: settings.value, aiConfig: aiConfig.value, aiSettings: aiSettings.value })
     message.success('系统设置已保存')
   } catch (error) {
     message.error('保存失败')
@@ -257,6 +288,22 @@ async function testAi() {
   } finally {
     testing.value = false
   }
+}
+
+async function loadModels() {
+  if (!aiConfig.value.base_url) {
+    message.warning('请先填写 Base URL')
+    return
+  }
+  loadingModels.value = true
+  try {
+    const result = await api.getAiModels({ provider: aiConfig.value.provider, baseUrl: aiConfig.value.base_url, apiKey: aiConfig.value.api_key })
+    if (!result.available) { message.warning(result.message || '无法加载模型列表'); return }
+    modelOptions.value = result.models.map(model => ({ label: model, value: model }))
+    if (!modelOptions.value.length) message.info('接口未返回可用模型')
+    else message.success(`已加载 ${modelOptions.value.length} 个模型`)
+  } catch (error) { message.error('模型列表加载失败') }
+  finally { loadingModels.value = false }
 }
 
 onMounted(() => {

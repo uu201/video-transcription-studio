@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import json
+import httpx
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -25,11 +27,18 @@ from app.services.realtime import TaskEventHub
 from app.web.views import router as web_router
 from app.workers.worker import TaskWorkerPool
 from app.workers.ai_worker import AIWorkerPool
+from app.services.ai_analysis_queue import AIAnalysisQueueService
 from app.exceptions import AppException
 from app.error_handlers import app_exception_handler, generic_exception_handler
 from app.runtime_check import ensure_supported_runtime
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)-7s | %(message)s", datefmt="%H:%M:%S")
+
+
+def _normalize_ai_settings(value: dict | None) -> dict:
+    value = value or {}
+    selected = AIAnalysisQueueService.normalize_types(value.get("autoTypes")) or ["SUMMARY", "CONCLUSION"]
+    return {"mode": value.get("mode", "manual"), "autoTypes": selected}
 
 
 def create_app() -> FastAPI:
@@ -121,6 +130,65 @@ def create_app() -> FastAPI:
             return result
         except Exception as exc:
             return {"available": False, "message": str(exc)}
+
+    @application.get("/api/system/ai-settings", tags=["系统"])
+    def get_ai_settings() -> dict:
+        row = database.fetch_one("SELECT value_json FROM app_setting WHERE key='ai_analysis'" )
+        return _normalize_ai_settings(json.loads(row["value_json"])) if row else {"mode": "manual", "autoTypes": ["SUMMARY", "CONCLUSION"]}
+
+    @application.put("/api/system/ai-settings", tags=["系统"])
+    def save_ai_settings(payload: dict) -> dict:
+        value = _normalize_ai_settings(payload)
+        now = __import__("app.db.database", fromlist=["utc_now"]).utc_now()
+        database.execute("INSERT INTO app_setting(key,value_json,updated_at) VALUES('ai_analysis',?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at", (json.dumps(value, ensure_ascii=False), now))
+        return value
+
+    @application.get("/api/system/settings", tags=["系统"])
+    def get_system_settings() -> dict:
+        row = database.fetch_one("SELECT value_json FROM app_setting WHERE key='system_settings'")
+        if not row:
+            return {"settings": {}, "aiConfig": {}, "aiSettings": get_ai_settings()}
+        value = json.loads(row["value_json"])
+        value["aiSettings"] = _normalize_ai_settings(value.get("aiSettings"))
+        return value
+
+    @application.put("/api/system/settings", tags=["系统"])
+    def save_system_settings(payload: dict) -> dict:
+        value = {
+            "settings": payload.get("settings") or {},
+            "aiConfig": payload.get("aiConfig") or {},
+            "aiSettings": {
+                "mode": (payload.get("aiSettings") or {}).get("mode", "manual"),
+                "autoTypes": _normalize_ai_settings(payload.get("aiSettings")).get("autoTypes"),
+            },
+        }
+        now = __import__("app.db.database", fromlist=["utc_now"]).utc_now()
+        encoded = json.dumps(value, ensure_ascii=False)
+        database.execute("INSERT INTO app_setting(key,value_json,updated_at) VALUES('system_settings',?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at", (encoded, now))
+        database.execute("INSERT INTO app_setting(key,value_json,updated_at) VALUES('ai_analysis',?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at", (json.dumps(value["aiSettings"], ensure_ascii=False), now))
+        return value
+
+    @application.post("/api/system/ai-models", tags=["系统"])
+    def list_ai_models(payload: dict) -> dict:
+        """从当前 Provider 读取可用模型名称。"""
+        base_url = str(payload.get("baseUrl", "")).strip().rstrip("/")
+        api_key = str(payload.get("apiKey", "")).strip()
+        provider = str(payload.get("provider", "openai")).lower()
+        if not base_url:
+            return {"available": False, "models": [], "message": "请先填写 Base URL"}
+        try:
+            if provider == "ollama":
+                response = httpx.get(f"{base_url}/api/tags", timeout=15, trust_env=False)
+                response.raise_for_status()
+                models = [item.get("name") for item in response.json().get("models", []) if item.get("name")]
+            else:
+                headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+                response = httpx.get(f"{base_url}/models", headers=headers, timeout=15, trust_env=False)
+                response.raise_for_status()
+                models = [item.get("id") for item in response.json().get("data", []) if item.get("id")]
+            return {"available": True, "models": sorted(set(models))}
+        except (httpx.HTTPError, ValueError, AttributeError) as exc:
+            return {"available": False, "models": [], "message": f"模型列表加载失败：{exc}"}
 
     @application.get("/api/system/environment", tags=["系统"])
     def environment(response: Response, force: bool = False) -> dict:

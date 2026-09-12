@@ -107,12 +107,14 @@ class PipelineService:
             self._pause_if_requested(task_id)
             self._update(task_id, TaskStage.SAVING, 85)
             self._save_transcript(task_id, asr_result, clean_text)
-            if task["requested_ai"] and self.settings.ai_enabled:
+            ai_setting = self.database.fetch_one("SELECT value_json FROM app_setting WHERE key='ai_analysis'")
+            ai_config = json.loads(ai_setting["value_json"]) if ai_setting else {"mode": "manual", "autoTypes": []}
+            if task["requested_ai"] and self.settings.ai_enabled and ai_config.get("mode") == "auto":
                 try:
                     transcript = self.database.fetch_one("SELECT id FROM transcript WHERE task_id = ?", (task_id,))
                     if transcript:
                         AIAnalysisQueueService(self.database, self.event_hub).create(
-                            transcript["id"], ["SUMMARY", "OUTLINE", "KEY_POINTS", "QUOTES"]
+                            transcript["id"], ai_config.get("autoTypes") or ["SUMMARY", "CONCLUSION"]
                         )
                 except Exception:
                     LOGGER.exception("任务 #%s | AI 分析队列创建失败，不影响转录结果", task_id)

@@ -56,6 +56,11 @@ export default {
   getTaskDetail(id) {
     return request.get(`/tasks/${id}`)
   },
+  getAiSettings() { return request.get('/system/ai-settings') },
+  saveAiSettings(data) { return request.put('/system/ai-settings', data) },
+  getSystemSettings() { return request.get('/system/settings') },
+  saveSystemSettings(data) { return request.put('/system/settings', data) },
+  getAiModels(data) { return request.post('/system/ai-models', data) },
 
   getTranscript(id) {
     return request.get(`/tasks/${id}/transcript`)
@@ -76,6 +81,7 @@ export default {
   getAiTasks(params) {
     return request.get('/ai/tasks', { params })
   },
+  getAiTask(id) { return request.get(`/ai/tasks/${id}`) },
 
   createAiAnalysis(transcriptId, data) {
     return request.post(`/ai/transcripts/${transcriptId}`, data)
@@ -84,10 +90,12 @@ export default {
   retryAiTask(id) {
     return request.post(`/ai/tasks/${id}/retry`)
   },
+  reanalyzeAiTask(id) { return request.post(`/ai/tasks/${id}/reanalyze`) },
 
   cancelAiTask(id) {
     return request.post(`/ai/tasks/${id}/cancel`)
   },
+  deleteAiTask(id) { return request.delete(`/ai/tasks/${id}`) },
 
   startAiTask(id) {
     return request.post(`/ai/tasks/${id}/start`)
