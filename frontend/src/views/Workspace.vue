@@ -88,27 +88,27 @@ const renderIcon = (icon) => {
 
 const menuOptions = [
   {
-    label: '总览',
+    label: '内容总览',
     key: 'overview',
     icon: renderIcon(GridOutline)
   },
   {
-    label: '扫描源',
+    label: '素材来源',
     key: 'sources',
     icon: renderIcon(FolderOpenOutline)
   },
   {
-    label: '处理任务',
+    label: '转录任务',
     key: 'tasks',
     icon: renderIcon(ListOutline)
   },
   {
-    label: 'AI 分析',
+    label: 'AI 分析任务',
     key: 'ai-analysis',
     icon: renderIcon(SparklesOutline)
   },
   {
-    label: '转录结果',
+    label: '转录成果',
     key: 'results',
     icon: renderIcon(LibraryOutline)
   },
@@ -128,11 +128,11 @@ const currentRoute = computed(() => {
 
 const currentPageTitle = computed(() => {
   const titles = {
-    overview: '内容处理总览',
-    sources: '扫描源配置',
-    tasks: '处理任务队列',
-    'ai-analysis': 'AI 分析队列',
-    results: '转录结果书架',
+    overview: '内容总览',
+    sources: '素材来源',
+    tasks: '转录任务队列',
+    'ai-analysis': 'AI 分析任务队列',
+    results: '转录成果',
     settings: '系统环境设置'
   }
   return titles[currentRoute.value] || '工作台'

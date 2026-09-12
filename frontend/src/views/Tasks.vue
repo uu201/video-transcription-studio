@@ -2,8 +2,8 @@
   <n-space vertical :size="24">
     <div class="page-header">
       <div>
-        <h1 class="page-title">处理任务</h1>
-        <n-text depth="3">实时跟踪转录进度，管理队列中的任务和结果</n-text>
+        <h1 class="page-title">转录任务</h1>
+        <n-text depth="3">实时跟踪转录进度，管理转录和 AI 分析任务</n-text>
       </div>
       <n-space align="center">
         <n-tag :type="realtimeConnected ? 'success' : 'warning'" size="small" round>

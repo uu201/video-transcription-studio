@@ -73,6 +73,9 @@ export default {
   getResults(params) {
     return request.get('/results', { params })
   },
+  deleteResults(ids) {
+    return request.delete('/results', { data: { ids } })
+  },
 
   getTaskAnalyses(id) {
     return request.get(`/tasks/${id}/analyses`)

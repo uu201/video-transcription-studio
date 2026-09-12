@@ -2,8 +2,8 @@
   <n-space vertical :size="24">
     <div class="page-header">
       <div>
-        <h1 class="page-title">扫描源管理</h1>
-        <n-text depth="3">配置本地音视频目录，扫描后选择文件创建转录任务</n-text>
+        <h1 class="page-title">素材来源</h1>
+        <n-text depth="3">配置本地音视频目录，扫描后选择素材创建转录任务</n-text>
       </div>
       <n-button type="primary" @click="showAddDialog">
         <template #icon>
@@ -22,7 +22,7 @@
       </ol>
     </n-alert>
 
-    <n-card title="已配置扫描源">
+      <n-card title="已配置素材来源">
       <template #header-extra>
         <n-text depth="3">共 {{ sourceStore.sources.length }} 个</n-text>
       </template>

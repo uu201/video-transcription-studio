@@ -1,11 +1,16 @@
 """转录结果资产 API。"""
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from pydantic import BaseModel, Field
 
 from app.api.dependencies import database
 from app.db.database import Database
 
 router = APIRouter(prefix="/api/results", tags=["转录结果"])
+
+
+class ResultDeleteInput(BaseModel):
+    ids: list[int] = Field(min_length=1, max_length=200)
 
 
 @router.get("")
@@ -31,3 +36,24 @@ def list_results(limit: int = Query(default=200, ge=1, le=500), db: Database = D
         (limit,),
     )
     return [dict(row) for row in rows]
+
+
+@router.delete("", status_code=status.HTTP_200_OK)
+def delete_results(payload: ResultDeleteInput, request: Request, db: Database = Depends(database)) -> dict:
+    """批量删除转录任务及结果，保留源媒体文件以便后续重新扫描。"""
+    ids = list(dict.fromkeys(payload.ids))
+    placeholders = ",".join("?" for _ in ids)
+    rows = db.fetch_all(
+        f"SELECT id FROM processing_task WHERE status='SUCCEEDED' AND id IN ({placeholders})",
+        tuple(ids),
+    )
+    deleted_ids = [int(row["id"]) for row in rows]
+    if not deleted_ids:
+        raise HTTPException(404, "没有找到可删除的转录结果")
+    deleted_placeholders = ",".join("?" for _ in deleted_ids)
+    deleted = db.execute(f"DELETE FROM processing_task WHERE id IN ({deleted_placeholders})", tuple(deleted_ids))
+    event_hub = getattr(request.app.state, "event_hub", None)
+    if event_hub:
+        for task_id in deleted_ids:
+            event_hub.publish({"type": "task.deleted", "taskId": task_id})
+    return {"deleted": deleted, "taskIds": deleted_ids, "rescanAvailable": True}
