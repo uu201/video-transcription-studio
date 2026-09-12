@@ -164,6 +164,22 @@
         </div>
       </n-form>
     </n-card>
+
+    <n-card title="5. 云端转录同步" class="cloud-sync-card">
+      <template #header-extra>
+        <n-space align="center"><n-text depth="3">独立数据库</n-text><n-switch v-model:value="cloudSync.enabled" :rail-style="railStyle" /></n-space>
+      </template>
+      <n-alert v-if="!cloudSync.enabled" type="info" :bordered="false" style="margin-bottom: 16px">开启后可将本地转录文案、时间戳分段和 AI 摘要/总结同步到云端。</n-alert>
+      <n-form label-placement="top">
+        <n-grid :cols="2" :x-gap="16" responsive="screen">
+          <n-gi><n-form-item label="云端服务地址"><n-input v-model:value="cloudSync.baseUrl" placeholder="http://127.0.0.1:8088" /></n-form-item></n-gi>
+          <n-gi><n-form-item label="同步秘钥"><n-input v-model:value="cloudSync.token" type="password" show-password-on="click" placeholder="与云端 archive.sync.token 一致" /></n-form-item></n-gi>
+          <n-gi><n-form-item label="自动同步"><n-switch v-model:value="cloudSync.autoSync" /><n-text depth="3" style="margin-left: 10px">转录或 AI 分析完成后自动上传</n-text></n-form-item></n-gi>
+          <n-gi><n-form-item label="失败重试次数"><n-input-number v-model:value="cloudSync.retryCount" :min="0" :max="5" style="width: 100%" /></n-form-item></n-gi>
+        </n-grid>
+        <n-space><n-button type="primary" secondary :loading="testingCloud" @click="testCloud">测试云端连接</n-button><n-text v-if="cloudStatus" depth="2">{{ cloudStatus.message }}</n-text></n-space>
+      </n-form>
+    </n-card>
   </n-space>
 </template>
 
@@ -198,6 +214,9 @@ const aiConfig = ref({
   model_name: ''
 })
 const aiSettings = ref({ mode: 'manual', autoTypes: ['SUMMARY', 'CONCLUSION'] })
+const cloudSync = ref({ enabled: false, autoSync: false, baseUrl: '', token: '', timeoutSeconds: 30, retryCount: 2 })
+const testingCloud = ref(false)
+const cloudStatus = ref(null)
 const analysisTypeOptions = [
   { label: '摘要', value: 'SUMMARY' }, { label: '总结', value: 'CONCLUSION' }
 ]
@@ -245,6 +264,7 @@ async function loadSettings() {
       aiConfig.value = { ...aiConfig.value, ...data.ai_config }
     }
     aiSettings.value = { ...aiSettings.value, ...(saved.aiSettings || await api.getAiSettings()) }
+    cloudSync.value = { ...cloudSync.value, ...(saved.cloudSync || await api.getCloudSyncConfig()) }
   } catch (error) {
     console.error('Failed to load settings:', error)
   }
@@ -253,7 +273,7 @@ async function loadSettings() {
 async function handleSave() {
   saving.value = true
   try {
-    await api.saveSystemSettings({ settings: settings.value, aiConfig: aiConfig.value, aiSettings: aiSettings.value })
+    await api.saveSystemSettings({ settings: settings.value, aiConfig: aiConfig.value, aiSettings: aiSettings.value, cloudSync: cloudSync.value })
     message.success('系统设置已保存')
   } catch (error) {
     message.error('保存失败')
@@ -304,6 +324,17 @@ async function loadModels() {
     else message.success(`已加载 ${modelOptions.value.length} 个模型`)
   } catch (error) { message.error('模型列表加载失败') }
   finally { loadingModels.value = false }
+}
+
+async function testCloud() {
+  testingCloud.value = true
+  try {
+    await api.saveCloudSyncConfig(cloudSync.value)
+    cloudStatus.value = await api.testCloudSync()
+    if (cloudStatus.value.available) message.success('云端连接正常')
+    else message.warning(cloudStatus.value.message || '云端连接失败')
+  } catch (error) { cloudStatus.value = { available: false, message: '云端连接失败' }; message.error('云端连接失败') }
+  finally { testingCloud.value = false }
 }
 
 onMounted(() => {

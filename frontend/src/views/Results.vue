@@ -15,6 +15,10 @@
           <template #icon><n-icon><TrashOutline /></n-icon></template>
           删除选中{{ selectedIds.length ? ` (${selectedIds.length})` : '' }}
         </n-button>
+        <n-button type="primary" secondary :disabled="selectedIds.length === 0" :loading="syncingCloud" @click="syncSelected">
+          <template #icon><n-icon><CloudUploadOutline /></n-icon></template>
+          同步选中{{ selectedIds.length ? ` (${selectedIds.length})` : '' }}
+        </n-button>
         <n-button :loading="loading" @click="loadResults">
           <template #icon><n-icon><RefreshOutline /></n-icon></template>
           刷新结果
@@ -83,7 +87,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { NButton, NIcon, NTag, useDialog, useMessage } from 'naive-ui'
-import { Refresh as RefreshOutline, Search as SearchOutline, Scan as ScanOutline, Trash as TrashOutline } from '@vicons/ionicons5'
+import { Refresh as RefreshOutline, Search as SearchOutline, Scan as ScanOutline, Trash as TrashOutline, CloudUpload as CloudUploadOutline } from '@vicons/ionicons5'
 import api from '@/api'
 import { formatDateTime } from '@/utils/format'
 
@@ -94,6 +98,7 @@ const loading = ref(false)
 const results = ref([])
 const searchKeyword = ref('')
 const selectedIds = ref([])
+const syncingCloud = ref(false)
 
 const filteredResults = computed(() => {
   const keyword = searchKeyword.value.trim().toLowerCase()
@@ -156,6 +161,18 @@ function deleteSelected() {
       }
     }
   })
+}
+
+async function syncSelected() {
+  if (!selectedIds.value.length) return
+  syncingCloud.value = true
+  try {
+    const results = await Promise.allSettled(selectedIds.value.map(id => api.syncTaskToCloud(id)))
+    const succeeded = results.filter(item => item.status === 'fulfilled').length
+    const failed = results.length - succeeded
+    if (failed) message.warning(`已同步 ${succeeded} 份，${failed} 份失败`)
+    else message.success(`已同步 ${succeeded} 份转录结果`)
+  } finally { syncingCloud.value = false }
 }
 
 onMounted(loadResults)

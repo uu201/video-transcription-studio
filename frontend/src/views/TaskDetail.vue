@@ -31,6 +31,10 @@
             </template>
             任务已完成
           </n-button>
+          <n-button v-if="task.status === 'SUCCEEDED'" :loading="syncingCloud" @click="syncToCloud">
+            <template #icon><n-icon><CloudUploadOutline /></n-icon></template>
+            同步到云端
+          </n-button>
         </n-space>
       </div>
 
@@ -226,7 +230,8 @@ import {
   CheckmarkCircle as CheckmarkCircleOutline,
   Document as DocumentOutline,
   Code as CodeOutline,
-  Film as FilmOutline
+  Film as FilmOutline,
+  CloudUpload as CloudUploadOutline
 } from '@vicons/ionicons5'
 import { useTaskStore } from '@/stores/task'
 import api from '@/api'
@@ -243,6 +248,7 @@ const task = ref(null)
 const analyses = ref([])
 const aiTasks = ref([])
 const creatingAi = ref(false)
+const syncingCloud = ref(false)
 const selectedAnalysisTypes = ref(['SUMMARY', 'CONCLUSION'])
 const analysisOptions = [
   { label: '摘要', value: 'SUMMARY' }, { label: '总结', value: 'CONCLUSION' }
@@ -570,6 +576,16 @@ async function createAiAnalysis() {
   } finally {
     creatingAi.value = false
   }
+}
+
+async function syncToCloud() {
+  syncingCloud.value = true
+  try {
+    const result = await api.syncTaskToCloud(task.value.id)
+    message.success(result.status === 'SUCCEEDED' ? '已同步到云端' : '同步请求已提交')
+  } catch (error) {
+    message.error(error?.response?.data?.detail || '云端同步失败')
+  } finally { syncingCloud.value = false }
 }
 </script>
 

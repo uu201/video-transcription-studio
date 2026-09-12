@@ -19,6 +19,7 @@ from app.api.scan_sources import router as sources_router
 from app.api.tasks import router as tasks_router
 from app.api.results import router as results_router
 from app.api.transfers import router as transfers_router
+from app.api.cloud_sync import router as cloud_sync_router
 from app.config import load_settings
 from app.db.database import Database
 from app.services.scanner import Scanner
@@ -92,6 +93,7 @@ def create_app() -> FastAPI:
     application.include_router(analyses_router)
     application.include_router(analyses_compat_router)
     application.include_router(transfers_router)
+    application.include_router(cloud_sync_router)
 
     # 注册全局异常处理器
     application.add_exception_handler(AppException, app_exception_handler)
@@ -154,6 +156,14 @@ def create_app() -> FastAPI:
 
     @application.put("/api/system/settings", tags=["系统"])
     def save_system_settings(payload: dict) -> dict:
+        """保存系统、AI 和云端同步配置，并兼容旧客户端字段。"""
+        previous = database.fetch_one("SELECT value_json FROM app_setting WHERE key='system_settings'")
+        previous_cloud = {}
+        if previous:
+            try:
+                previous_cloud = json.loads(previous["value_json"] or "{}").get("cloudSync") or {}
+            except (TypeError, ValueError, AttributeError):
+                previous_cloud = {}
         value = {
             "settings": payload.get("settings") or {},
             "aiConfig": payload.get("aiConfig") or {},
@@ -161,6 +171,7 @@ def create_app() -> FastAPI:
                 "mode": (payload.get("aiSettings") or {}).get("mode", "manual"),
                 "autoTypes": _normalize_ai_settings(payload.get("aiSettings")).get("autoTypes"),
             },
+            "cloudSync": payload.get("cloudSync") or previous_cloud,
         }
         now = __import__("app.db.database", fromlist=["utc_now"]).utc_now()
         encoded = json.dumps(value, ensure_ascii=False)

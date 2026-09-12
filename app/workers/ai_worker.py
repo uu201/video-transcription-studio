@@ -5,6 +5,7 @@ from app.db.database import utc_now
 from app.repositories.ai_analysis_task import AIAnalysisTaskRepository
 from app.services.ai_analysis_queue import AIAnalysisQueueService
 from app.services.llm.factory import create_provider
+from app.services.cloud_sync import auto_sync_task
 
 LOGGER = logging.getLogger(__name__)
 
@@ -162,6 +163,7 @@ class AIWorkerPool:
                 result_id = result_id or cur.lastrowid
             conn.execute("UPDATE ai_analysis_task SET status='SUCCEEDED',progress=100,message='分析完成',result_id=?,finished_at=?,updated_at=? WHERE id=?", (result_id,now,now,task_id))
         self._publish('ai.task.completed',task_id,'SUCCEEDED','分析完成',progress=100)
+        auto_sync_task(self.database, row['transcription_task_id'])
     def _set_progress(self, task_id, progress, message):
         """持久化并广播 AI 分析阶段进度。"""
         self.repo.update(task_id, progress=progress, message=message)

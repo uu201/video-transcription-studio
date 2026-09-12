@@ -19,6 +19,7 @@ from app.services.media_probe import MediaProbe
 from app.services.media_toolchain import MediaToolchain
 from app.services.text_processor import TextProcessor
 from app.services.ai_analysis_queue import AIAnalysisQueueService
+from app.services.cloud_sync import auto_sync_task
 
 LOGGER = logging.getLogger(__name__)
 
@@ -149,6 +150,7 @@ class PipelineService:
                 connection.execute("INSERT INTO task_event (task_id, stage, level, message, created_at) VALUES (?, 'COMPLETED', 'SUCCESS', '处理完成', ?)", (task_id, now))
             if self.event_hub:
                 self.event_hub.publish({"type": "task.completed", "taskId": task_id, "status": "SUCCEEDED", "stage": "COMPLETED", "progress": 100, "message": "处理完成", "at": now})
+            auto_sync_task(self.database, task_id)
             LOGGER.info("任务 #%s | 处理完成：%d 段 | %d 字符", task_id, len(asr_result.segments), len(clean_text))
         except TaskPaused:
             LOGGER.info("任务 #%s | 已暂停", task_id)

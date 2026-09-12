@@ -61,6 +61,11 @@ export default {
   getSystemSettings() { return request.get('/system/settings') },
   saveSystemSettings(data) { return request.put('/system/settings', data) },
   getAiModels(data) { return request.post('/system/ai-models', data) },
+  getCloudSyncConfig() { return request.get('/cloud-sync/config') },
+  saveCloudSyncConfig(data) { return request.put('/cloud-sync/config', data) },
+  testCloudSync() { return request.post('/cloud-sync/test') },
+  syncTaskToCloud(id) { return request.post(`/cloud-sync/tasks/${id}`) },
+  getCloudSyncHistory(id) { return request.get(`/cloud-sync/tasks/${id}/history`) },
 
   getTranscript(id) {
     return request.get(`/tasks/${id}/transcript`)
