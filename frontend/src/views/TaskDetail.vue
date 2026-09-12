@@ -120,38 +120,8 @@
           </n-space>
         </template>
 
-        <n-tabs type="line" v-model:value="activeTab">
-          <n-tab-pane name="clean" tab="清洗后文案 (推荐)">
-            <div v-if="cleanText" class="transcript-box">{{ cleanText }}</div>
-            <n-empty v-else description="识别已完成，但没有可显示的清洗文案">
-              <template #extra>
-                <n-text depth="3">可以切换到“完整 JSON”检查原始识别结果。</n-text>
-              </template>
-            </n-empty>
-          </n-tab-pane>
-          <n-tab-pane name="raw" tab="原始识别文本">
-            <div v-if="rawText" class="transcript-box">{{ rawText }}</div>
-            <n-empty v-else description="没有原始文本可显示" />
-          </n-tab-pane>
-          <n-tab-pane name="json" tab="完整 JSON">
-            <div v-if="jsonLoading" class="json-loading">
-              <n-spin size="small" />
-              <n-text depth="3">正在生成 JSON...</n-text>
-            </div>
-            <n-alert v-else-if="jsonError" type="error" :show-icon="false">
-              {{ jsonError }}
-            </n-alert>
-            <textarea
-              v-else-if="jsonText"
-              class="transcript-box json-box"
-              :value="jsonText"
-              readonly
-              spellcheck="false"
-              aria-label="完整 JSON"
-            />
-            <n-empty v-else description="转写结果记录不存在" />
-          </n-tab-pane>
-        </n-tabs>
+        <div v-if="cleanText" class="markdown-body" v-html="renderMarkdown(cleanText)" />
+        <n-empty v-else description="识别已完成，但没有可显示的转写文案" />
       </n-card>
 
       <!-- AI 处理结果 -->
@@ -187,7 +157,12 @@
                 <n-button v-if="analysis.status === 'SUCCEEDED'" text size="tiny" type="primary" @click="handleReanalyze(analysis)">重新分析</n-button>
               </n-space>
             </template>
-            <div class="analysis-content">{{ analysis.content || '该分析暂无可显示内容' }}</div>
+            <div
+              v-if="analysis.content"
+              class="markdown-body analysis-content"
+              v-html="renderMarkdown(analysis.content)"
+            />
+            <n-empty v-else description="该分析暂无可显示内容" size="small" />
             <n-text v-if="analysis.providerName || analysis.model" depth="3" class="analysis-meta">
               {{ analysis.providerName || 'AI 服务' }}<span v-if="analysis.model"> · {{ analysis.model }}</span>
               <span v-if="analysis.promptVersion"> · 提示词 v{{ analysis.promptVersion }}</span>
@@ -241,7 +216,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onBeforeUnmount, toRaw } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useMessage, useDialog } from 'naive-ui'
 import {
@@ -265,11 +240,6 @@ const taskStore = useTaskStore()
 
 const loading = ref(false)
 const task = ref(null)
-const activeTab = ref('clean')
-const jsonText = ref('')
-const jsonLoading = ref(false)
-const jsonError = ref('')
-let jsonRequestId = 0
 const analyses = ref([])
 const aiTasks = ref([])
 const creatingAi = ref(false)
@@ -290,83 +260,110 @@ const mediaInfo = computed(() => {
 })
 const transcript = computed(() => task.value?.transcript || null)
 const cleanText = computed(() => transcript.value?.cleanText?.trim() || '')
-const rawText = computed(() => transcript.value?.rawText?.trim() || '')
 const segments = computed(() => task.value?.segments || [])
 
-function stringifyInWorker(value) {
-  if (typeof Worker === 'undefined' || typeof Blob === 'undefined' || typeof URL === 'undefined') {
-    return Promise.reject(new Error('当前环境不支持后台 JSON 处理'))
-  }
+function escapeHtml(value) {
+  return String(value || '').replace(/[&<>"']/g, character => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  })[character])
+}
 
-  return new Promise((resolve, reject) => {
-    let worker
-    let objectUrl
-    const cleanup = () => {
-      worker?.terminate()
-      if (objectUrl) URL.revokeObjectURL(objectUrl)
-    }
-
-    try {
-      const source = 'self.onmessage = function (event) { try { self.postMessage({ value: JSON.stringify(event.data, null, 2) }) } catch (error) { self.postMessage({ error: error && error.message ? error.message : String(error) }) } }'
-      objectUrl = URL.createObjectURL(new Blob([source], { type: 'application/javascript' }))
-      worker = new Worker(objectUrl)
-      worker.onmessage = ({ data }) => {
-        cleanup()
-        data?.error ? reject(new Error(data.error)) : resolve(data?.value || '')
-      }
-      worker.onerror = (event) => {
-        cleanup()
-        reject(new Error(event.message || '后台 JSON 处理失败'))
-      }
-      worker.postMessage(value)
-    } catch (error) {
-      cleanup()
-      reject(error)
-    }
+function renderInlineMarkdown(value) {
+  const codeTokens = []
+  let text = value.replace(/`([^`\n]+)`/g, (_, code) => {
+    const token = `\u0000CODE${codeTokens.length}\u0000`
+    codeTokens.push(`<code>${code}</code>`)
+    return token
   })
+  text = text
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+    .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/__([^_\n]+)__/g, '<strong>$1</strong>')
+    .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>')
+    .replace(/(^|[^_])_([^_\n]+)_(?!_)/g, '$1<em>$2</em>')
+  return text.replace(/\u0000CODE(\d+)\u0000/g, (_, index) => codeTokens[Number(index)])
 }
 
-async function prepareJson() {
-  const requestId = ++jsonRequestId
-  const value = transcript.value
-  jsonText.value = ''
-  jsonError.value = ''
-  if (!value) {
-    jsonLoading.value = false
-    return
-  }
-
-  jsonLoading.value = true
-  try {
-    // Vue stores reactive proxies; strip the proxy before handing data to Worker.
-    const result = await stringifyInWorker(toRaw(value))
-    if (requestId === jsonRequestId) jsonText.value = result
-  } catch (error) {
-    // Keep older WebViews usable when Worker/blob URLs are unavailable.
-    await new Promise(resolve => setTimeout(resolve, 0))
-    if (requestId === jsonRequestId) {
-      try {
-        jsonText.value = JSON.stringify(toRaw(value), null, 2)
-      } catch (fallbackError) {
-        jsonError.value = `JSON 生成失败：${fallbackError?.message || error?.message || '未知错误'}`
-      }
+function renderMarkdown(markdown) {
+  const lines = escapeHtml(markdown).replace(/\r\n?/g, '\n').split('\n')
+  const blocks = []
+  let paragraph = []
+  let index = 0
+  const flushParagraph = () => {
+    if (paragraph.length) {
+      blocks.push(`<p>${renderInlineMarkdown(paragraph.join('<br>'))}</p>`)
+      paragraph = []
     }
-  } finally {
-    if (requestId === jsonRequestId) jsonLoading.value = false
   }
+
+  while (index < lines.length) {
+    const line = lines[index]
+    const fence = line.match(/^\s*```(?:[^`]*)$/)
+    if (fence) {
+      flushParagraph()
+      index += 1
+      const code = []
+      while (index < lines.length && !/^\s*```\s*$/.test(lines[index])) {
+        code.push(lines[index])
+        index += 1
+      }
+      blocks.push(`<pre><code>${code.join('\n')}</code></pre>`)
+      index += 1
+      continue
+    }
+    const heading = line.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/)
+    if (heading) {
+      flushParagraph()
+      const level = heading[1].length
+      blocks.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`)
+      index += 1
+      continue
+    }
+    if (/^\s*([-*_])(?:\s*\1){2,}\s*$/.test(line)) {
+      flushParagraph()
+      blocks.push('<hr>')
+      index += 1
+      continue
+    }
+    if (/^\s*>\s?/.test(line)) {
+      flushParagraph()
+      const quote = []
+      while (index < lines.length && /^\s*>\s?/.test(lines[index])) {
+        quote.push(lines[index].replace(/^\s*>\s?/, ''))
+        index += 1
+      }
+      blocks.push(`<blockquote>${renderInlineMarkdown(quote.join('<br>'))}</blockquote>`)
+      continue
+    }
+    const unordered = line.match(/^\s*[-*+]\s+(.+)$/)
+    const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/)
+    if (unordered || ordered) {
+      flushParagraph()
+      const items = []
+      const orderedList = Boolean(ordered)
+      while (index < lines.length) {
+        const item = lines[index].match(orderedList ? /^\s*\d+[.)]\s+(.+)$/ : /^\s*[-*+]\s+(.+)$/)
+        if (!item) break
+        items.push(`<li>${renderInlineMarkdown(item[1])}</li>`)
+        index += 1
+      }
+      blocks.push(`<${orderedList ? 'ol' : 'ul'}>${items.join('')}</${orderedList ? 'ol' : 'ul'}>`)
+      continue
+    }
+    if (!line.trim()) {
+      flushParagraph()
+    } else {
+      paragraph.push(line)
+    }
+    index += 1
+  }
+  flushParagraph()
+  return blocks.join('')
 }
-
-watch(activeTab, (tab) => {
-  if (tab === 'json') prepareJson()
-  else {
-    jsonRequestId += 1
-    jsonLoading.value = false
-  }
-})
-
-onBeforeUnmount(() => {
-  jsonRequestId += 1
-})
 const pipeline = computed(() => (task.value?.events || []).map(event => ({
   type: event.level === 'ERROR' ? 'error' : (event.level === 'SUCCESS' ? 'success' : 'default'),
   title: event.message || stageLabelMap[event.stage] || '处理事件',
@@ -591,39 +588,115 @@ async function createAiAnalysis() {
   margin-bottom: 4px;
 }
 
-.transcript-box {
+.markdown-body {
+  max-height: 680px;
+  overflow-y: auto;
+  padding: 24px 28px;
   background: var(--n-color-modal);
   border: 1px solid var(--n-border-color);
-  border-radius: 8px;
-  padding: 16px;
-  line-height: 1.7;
-  max-height: 400px;
-  overflow-y: auto;
-  white-space: pre-wrap;
+  border-radius: 10px;
+  color: var(--n-text-color);
+  font-size: 15px;
+  line-height: 1.85;
+  overflow-wrap: anywhere;
 }
 
-.json-box {
+.markdown-body :deep(h1),
+.markdown-body :deep(h2),
+.markdown-body :deep(h3),
+.markdown-body :deep(h4),
+.markdown-body :deep(h5),
+.markdown-body :deep(h6) {
+  margin: 1.35em 0 0.5em;
+  color: var(--n-text-color);
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.markdown-body :deep(h1) {
+  margin-top: 0;
+  font-size: 1.65em;
+}
+
+.markdown-body :deep(h2) {
+  font-size: 1.35em;
+  border-bottom: 1px solid var(--n-divider-color);
+  padding-bottom: 0.35em;
+}
+
+.markdown-body :deep(h3) {
+  font-size: 1.15em;
+}
+
+.markdown-body :deep(p) {
+  margin: 0 0 1em;
+}
+
+.markdown-body :deep(p:last-child),
+.markdown-body :deep(ul:last-child),
+.markdown-body :deep(ol:last-child),
+.markdown-body :deep(blockquote:last-child),
+.markdown-body :deep(pre:last-child) {
+  margin-bottom: 0;
+}
+
+.markdown-body :deep(ul),
+.markdown-body :deep(ol) {
+  margin: 0 0 1em;
+  padding-left: 1.5em;
+}
+
+.markdown-body :deep(li + li) {
+  margin-top: 0.35em;
+}
+
+.markdown-body :deep(blockquote) {
+  margin: 1em 0;
+  padding: 0.7em 1em;
+  border-left: 3px solid var(--n-primary-color);
+  background: var(--n-color-target);
+  color: var(--n-text-color-2);
+}
+
+.markdown-body :deep(code) {
+  padding: 0.12em 0.35em;
+  border-radius: 4px;
+  background: var(--n-color-embedded);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 12px;
-  margin: 0;
-  width: 100%;
-  height: 400px;
-  box-sizing: border-box;
-  resize: vertical;
-  display: block;
+  font-size: 0.9em;
 }
 
-.json-loading {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 80px;
-  justify-content: center;
+.markdown-body :deep(pre) {
+  margin: 1em 0;
+  padding: 14px 16px;
+  overflow-x: auto;
+  border-radius: 7px;
+  background: #202521;
+  color: #f4f5ed;
+}
+
+.markdown-body :deep(pre code) {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 0.88em;
+}
+
+.markdown-body :deep(a) {
+  color: var(--n-primary-color);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.markdown-body :deep(hr) {
+  margin: 1.5em 0;
+  border: 0;
+  border-top: 1px solid var(--n-divider-color);
 }
 
 .analysis-content {
-  white-space: pre-wrap;
-  line-height: 1.7;
+  max-height: none;
+  padding: 18px 20px;
   color: var(--n-text-color-2);
 }
 
