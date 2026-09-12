@@ -18,6 +18,7 @@ from app.services.exporter import Exporter
 from app.services.media_probe import MediaProbe
 from app.services.media_toolchain import MediaToolchain
 from app.services.text_processor import TextProcessor
+from app.services.ai_analysis_queue import AIAnalysisQueueService
 
 LOGGER = logging.getLogger(__name__)
 
@@ -106,6 +107,15 @@ class PipelineService:
             self._pause_if_requested(task_id)
             self._update(task_id, TaskStage.SAVING, 85)
             self._save_transcript(task_id, asr_result, clean_text)
+            if task["requested_ai"] and self.settings.ai_enabled:
+                try:
+                    transcript = self.database.fetch_one("SELECT id FROM transcript WHERE task_id = ?", (task_id,))
+                    if transcript:
+                        AIAnalysisQueueService(self.database, self.event_hub).create(
+                            transcript["id"], ["SUMMARY", "OUTLINE", "KEY_POINTS", "QUOTES"]
+                        )
+                except Exception:
+                    LOGGER.exception("任务 #%s | AI 分析队列创建失败，不影响转录结果", task_id)
             paths = self.exporter.export(task_id, asr_result, clean_text)
             if self._cancelled(task_id):
                 raise AppError("TASK_CANCELED", "任务已取消", retryable=False)

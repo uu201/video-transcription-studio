@@ -28,6 +28,11 @@ const routes = [
         component: () => import('@/views/TaskDetail.vue')
       },
       {
+        path: 'ai-analysis',
+        name: 'AiAnalysis',
+        component: () => import('@/views/AiAnalysis.vue')
+      },
+      {
         path: 'results',
         name: 'Results',
         component: () => import('@/views/Results.vue')
@@ -49,6 +54,12 @@ const routes = [
 const router = createRouter({
   history: createWebHistory(),
   routes
+})
+
+router.onError((error) => {
+  if (/Failed to fetch dynamically imported module|Importing a module script failed/i.test(error?.message || '')) {
+    window.location.reload()
+  }
 })
 
 export default router

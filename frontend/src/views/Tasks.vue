@@ -58,6 +58,8 @@
       </div>
     </section>
 
+    <n-tabs v-model:value="queueTab" type="line" animated>
+      <n-tab-pane name="transcription" tab="转录队列">
     <!-- 搜索和过滤 -->
     <n-card size="small">
       <n-space justify="space-between" wrap :size="[12, 12]">
@@ -83,6 +85,14 @@
         </n-radio-group>
       </n-space>
     </n-card>
+      </n-tab-pane>
+      <n-tab-pane name="ai" tab="AI 分析队列">
+        <n-card>
+          <n-empty v-if="!aiTasks.length" description="暂无 AI 分析任务" />
+          <n-data-table v-else :columns="aiColumns" :data="aiTasks" :loading="aiStore.loading" :pagination="{ pageSize: 20 }" />
+        </n-card>
+      </n-tab-pane>
+    </n-tabs>
 
     <!-- 任务列表 -->
     <n-card>
@@ -112,12 +122,15 @@ import { useRouter } from 'vue-router'
 import { NButton, NTag, NProgress, NIcon, useMessage, useDialog } from 'naive-ui'
 import { Refresh as RefreshOutline, Search as SearchOutline, DocumentText as DocumentTextOutline, RefreshCircle as RefreshCircleOutline, CloseCircle as CloseCircleOutline, Trash as TrashOutline, Pause as PauseOutline, Play as PlayOutline } from '@vicons/ionicons5'
 import { useTaskStore } from '@/stores/task'
+import { useAiAnalysisStore } from '@/stores/aiAnalysis'
 import { formatDateTime } from '@/utils/format'
 
 const router = useRouter()
 const message = useMessage()
 const dialog = useDialog()
 const taskStore = useTaskStore()
+const aiStore = useAiAnalysisStore()
+const queueTab = ref('transcription')
 
 const searchKeyword = ref('')
 const filterStatus = ref('all')
@@ -148,6 +161,7 @@ const filteredTasks = computed(() => {
 })
 
 const activeTasks = computed(() => taskStore.tasks.filter(task => task.status === 'RUNNING'))
+const aiTasks = computed(() => aiStore.tasks)
 
 const statusTypeMap = {
   QUEUED: 'default',
@@ -332,6 +346,25 @@ const columns = [
   }
 ]
 
+const aiColumns = [
+  { title: '任务编号', key: 'id', width: 100 },
+  { title: '素材文件', key: 'fileName', ellipsis: { tooltip: true } },
+  { title: '分析类型', key: 'analysisType', width: 130 },
+  { title: '状态', key: 'status', width: 100, render: row => h(NTag, { type: row.status === 'SUCCEEDED' ? 'success' : row.status === 'FAILED' ? 'error' : 'warning', size: 'small' }, { default: () => ({ QUEUED: '等待处理', RUNNING: '分析中', SUCCEEDED: '已完成', FAILED: '失败', CANCELED: '已取消' }[row.status] || row.status) }) },
+  { title: '进度', key: 'progress', width: 130, render: row => h('span', `${safeProgress(row.progress)}%`) },
+  { title: '提示', key: 'message', ellipsis: { tooltip: true } },
+  {
+    title: '操作', key: 'actions', width: 220,
+    render: row => {
+      const actions = []
+      if (row.status === 'QUEUED' || row.status === 'RUNNING') actions.push(h(NButton, { text: true, size: 'small', type: 'warning', onClick: () => aiStore.pauseTask(row.id) }, { default: () => row.status === 'RUNNING' ? '暂停' : '暂停' }))
+      if (row.status === 'PAUSED' || row.status === 'FAILED' || row.status === 'CANCELED') actions.push(h(NButton, { text: true, size: 'small', type: 'success', onClick: () => aiStore.startTask(row.id) }, { default: () => row.status === 'PAUSED' ? '继续' : '开始' }))
+      if (row.status === 'QUEUED' || row.status === 'RUNNING' || row.status === 'PAUSED') actions.push(h(NButton, { text: true, size: 'small', type: 'error', onClick: () => aiStore.cancelTask(row.id) }, { default: () => '取消' }))
+      return h('div', { style: 'display:flex;gap:8px;flex-wrap:wrap' }, actions)
+    }
+  }
+]
+
 function safeProgress(value) {
   return Math.max(0, Math.min(100, Number(value) || 0))
 }
@@ -357,6 +390,10 @@ function connectRealtime() {
         taskStore.replaceRealtimeTasks(payload.tasks || [])
       } else if (payload.type === 'task.updated' || payload.type === 'task.completed' || payload.type === 'task.failed') {
         taskStore.mergeRealtimeTask(payload)
+      } else if (payload.type === 'ai.task.updated' || payload.type === 'ai.task.completed' || payload.type === 'ai.task.failed') {
+        aiStore.mergeRealtimeTask(payload)
+      } else if (payload.type === 'ai.task.deleted') {
+        aiStore.removeRealtimeTask(payload.taskId)
       } else if (payload.type === 'task.created') {
         taskStore.fetchTasks()
       } else if (payload.type === 'task.deleted') {
@@ -443,6 +480,7 @@ function handleDelete(id) {
 
 onMounted(() => {
   taskStore.fetchTasks()
+  aiStore.fetchTasks()
   connectRealtime()
 })
 

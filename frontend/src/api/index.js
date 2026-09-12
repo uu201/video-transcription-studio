@@ -73,6 +73,30 @@ export default {
     return request.get(`/tasks/${id}/analyses`)
   },
 
+  getAiTasks(params) {
+    return request.get('/ai/tasks', { params })
+  },
+
+  createAiAnalysis(transcriptId, data) {
+    return request.post(`/ai/transcripts/${transcriptId}`, data)
+  },
+
+  retryAiTask(id) {
+    return request.post(`/ai/tasks/${id}/retry`)
+  },
+
+  cancelAiTask(id) {
+    return request.post(`/ai/tasks/${id}/cancel`)
+  },
+
+  startAiTask(id) {
+    return request.post(`/ai/tasks/${id}/start`)
+  },
+
+  pauseAiTask(id) {
+    return request.post(`/ai/tasks/${id}/pause`)
+  },
+
   createTasks(data) {
     return request.post('/tasks/batch', data)
   },

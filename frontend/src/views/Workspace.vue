@@ -68,6 +68,7 @@ import {
   Grid as GridOutline,
   FolderOpen as FolderOpenOutline,
   List as ListOutline,
+  Sparkles as SparklesOutline,
   LibraryOutline,
   Settings as SettingsOutline,
   Sunny as SunnyOutline,
@@ -102,6 +103,11 @@ const menuOptions = [
     icon: renderIcon(ListOutline)
   },
   {
+    label: 'AI 分析',
+    key: 'ai-analysis',
+    icon: renderIcon(SparklesOutline)
+  },
+  {
     label: '转录结果',
     key: 'results',
     icon: renderIcon(LibraryOutline)
@@ -125,6 +131,7 @@ const currentPageTitle = computed(() => {
     overview: '内容处理总览',
     sources: '扫描源配置',
     tasks: '处理任务队列',
+    'ai-analysis': 'AI 分析队列',
     results: '转录结果书架',
     settings: '系统环境设置'
   }

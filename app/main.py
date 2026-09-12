@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 from app.api.exports import router as exports_router
-from app.api.analyses import router as analyses_router
+from app.api.analyses import router as analyses_router, compat_router as analyses_compat_router
 from app.api.scan_sources import router as sources_router
 from app.api.tasks import router as tasks_router
 from app.api.results import router as results_router
@@ -24,6 +24,7 @@ from app.services.environment import EnvironmentChecker
 from app.services.realtime import TaskEventHub
 from app.web.views import router as web_router
 from app.workers.worker import TaskWorkerPool
+from app.workers.ai_worker import AIWorkerPool
 from app.exceptions import AppException
 from app.error_handlers import app_exception_handler, generic_exception_handler
 from app.runtime_check import ensure_supported_runtime
@@ -43,12 +44,15 @@ def create_app() -> FastAPI:
     # 使用多 Worker 池，默认 2 个 Worker
     worker_count = getattr(settings, 'worker_count', 2)
     worker_pool = TaskWorkerPool(settings, database, event_hub, worker_count=worker_count)
+    ai_worker_pool = AIWorkerPool(settings, database, event_hub, worker_count=1)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         """应用启动数据库和后台 Worker，退出时停止 Worker。"""
         worker_pool.start()
+        ai_worker_pool.start()
         yield
+        ai_worker_pool.stop()
         worker_pool.stop()
 
     application = FastAPI(title="视频转文案工作台", version="0.1.0", lifespan=lifespan)
@@ -56,6 +60,7 @@ def create_app() -> FastAPI:
     application.state.database = database
     application.state.scanner = scanner
     application.state.worker = worker_pool
+    application.state.ai_worker = ai_worker_pool
     application.state.event_hub = event_hub
 
     # 挂载静态文件
@@ -76,6 +81,7 @@ def create_app() -> FastAPI:
     application.include_router(results_router)
     application.include_router(exports_router)
     application.include_router(analyses_router)
+    application.include_router(analyses_compat_router)
     application.include_router(transfers_router)
 
     # 注册全局异常处理器
@@ -155,7 +161,7 @@ def create_app() -> FastAPI:
 
         index_file = dist_dir / "index.html"
         if index_file.exists():
-            return FileResponse(index_file)
+            return FileResponse(index_file, headers={"Cache-Control": "no-store, max-age=0"})
 
         # 如果 dist 不存在，尝试返回旧版模板
         old_template = Path(__file__).parent / "templates" / "workspace.html"
