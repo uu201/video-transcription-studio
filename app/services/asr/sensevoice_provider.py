@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,27 @@ from app.config import Settings
 from app.domain.schemas import ASRResult, ASRSegment, AppError
 
 LOGGER = logging.getLogger(__name__)
+
+_SENSEVOICE_TOKEN_RE = re.compile(r"<\|[^|]*\|>")
+
+
+def _plain_text(value: Any) -> str:
+    """移除 SenseVoice 控制标记和情绪/事件 emoji，保留正常文本。"""
+    text = _SENSEVOICE_TOKEN_RE.sub("", str(value or ""))
+    cleaned: list[str] = []
+    for char in text:
+        codepoint = ord(char)
+        is_emoji = (
+            0x1F000 <= codepoint <= 0x1FAFF
+            or 0x2600 <= codepoint <= 0x27BF
+            or 0x2B00 <= codepoint <= 0x2BFF
+            or 0x200D <= codepoint <= 0x200D
+            or 0x20E3 <= codepoint <= 0x20E3
+            or 0xFE0E <= codepoint <= 0xFE0F
+        )
+        if not is_emoji:
+            cleaned.append(char)
+    return "".join(cleaned).strip()
 
 
 class SenseVoiceProvider:
@@ -255,10 +277,6 @@ class SenseVoiceProvider:
         raw = [] if generated is None else [generated] if isinstance(generated, dict) else list(generated)
         segments: list[ASRSegment] = []
         texts: list[str] = []
-        try:
-            from funasr.utils.postprocess_utils import rich_transcription_postprocess
-        except ImportError:
-            rich_transcription_postprocess = lambda value: value
         for index, item in enumerate(raw, start=1):
             if not isinstance(item, dict):
                 continue
@@ -267,16 +285,14 @@ class SenseVoiceProvider:
                 for sentence_index, sentence in enumerate(sentence_info, start=1):
                     if not isinstance(sentence, dict):
                         continue
-                    text = str(sentence.get("sentence") or sentence.get("text") or "")
-                    text = str(rich_transcription_postprocess(text)).strip()
+                    text = _plain_text(sentence.get("sentence") or sentence.get("text") or "")
                     if text:
                         texts.append(text)
                     timestamp = sentence.get("timestamp") or sentence.get("timestamps") or []
                     start, end = self._segment_bounds(sentence, timestamp)
                     segments.append(ASRSegment(len(segments) + 1, start, end, text, sentence.get("spk"), sentence.get("confidence")))
                 continue
-            text = str(item.get("text", "") or "")
-            text = str(rich_transcription_postprocess(text)).strip()
+            text = _plain_text(item.get("text", "") or "")
             if text:
                 texts.append(text)
             timestamp = item.get("timestamp") or item.get("timestamps") or []
