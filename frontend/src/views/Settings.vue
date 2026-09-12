@@ -1,5 +1,5 @@
 <template>
-  <n-space vertical :size="24">
+  <n-space vertical :size="24" class="settings-page">
     <div class="page-header">
       <div>
         <h1 class="page-title">系统设置</h1>
@@ -98,15 +98,24 @@
     </n-card>
 
     <!-- AI Provider -->
-    <n-card title="4. AI Provider 接口配置 (选填)">
+    <n-card class="ai-provider-card" :class="{ 'ai-provider-disabled': !aiConfig.enabled }">
+      <template #header>AI Provider 接口配置（选填）</template>
       <template #header-extra>
-        <n-switch v-model:value="aiConfig.enabled">
-          <template #checked>启用 AI 提炼</template>
-          <template #unchecked>禁用</template>
-        </n-switch>
+        <label class="provider-toggle">
+          <span>启用 AI 提炼</span>
+          <n-switch v-model:value="aiConfig.enabled" :rail-style="railStyle" />
+        </label>
       </template>
 
-      <n-form label-placement="top">
+      <div v-if="!aiConfig.enabled" class="provider-disabled-state">
+        <div class="provider-disabled-icon">AI</div>
+        <div>
+          <strong>AI 提炼当前未启用</strong>
+          <p>打开右上角开关后配置服务地址、密钥和模型。未配置 AI 时，音视频转录仍可正常使用。</p>
+        </div>
+      </div>
+
+      <n-form v-else label-placement="top" class="provider-form">
         <n-grid :cols="2" :x-gap="16">
           <n-gi>
             <n-form-item label="Provider 类型">
@@ -130,14 +139,17 @@
           </n-gi>
         </n-grid>
 
-        <n-button :loading="testing" @click="testAi">测试接口连通性</n-button>
+        <div class="provider-actions">
+          <n-button type="primary" secondary :loading="testing" @click="testAi">测试接口连通性</n-button>
+          <span>密钥仅用于当前运行环境，不会影响本地 ASR 转录。</span>
+        </div>
       </n-form>
     </n-card>
   </n-space>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import { Save as SaveOutline } from '@vicons/ionicons5'
 import api from '@/api'
@@ -184,6 +196,14 @@ const providerOptions = [
   { label: 'Ollama (本地私有化)', value: 'ollama' },
   { label: 'Anthropic Claude', value: 'claude' }
 ]
+
+const railStyle = ({ focused, checked }) => {
+  const style = {}
+  if (checked) style.background = '#1f7a5a'
+  if (focused) style.boxShadow = '0 0 0 2px rgba(31, 122, 90, .2)'
+  return style
+}
+
 
 async function loadSettings() {
   try {
@@ -245,6 +265,10 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.settings-page {
+  --settings-accent: #1f7a5a;
+}
+
 .page-header {
   display: flex;
   justify-content: space-between;
@@ -257,5 +281,22 @@ onMounted(() => {
   font-size: 24px;
   font-weight: 600;
   margin-bottom: 4px;
+}
+
+.provider-heading { display: flex; align-items: flex-start; gap: 14px; }
+.provider-heading h2 { margin: 4px 0 3px; font-size: 18px; font-weight: 650; }
+.provider-heading p { margin: 0; color: var(--n-text-color-3); font-size: 12px; }
+.provider-toggle { display: inline-flex; align-items: center; gap: 10px; color: var(--n-text-color-2); font-size: 13px; font-weight: 600; cursor: pointer; }
+.ai-provider-card { border-color: rgba(31, 122, 90, .28); }
+.ai-provider-disabled { border-color: var(--n-border-color); }
+.provider-disabled-state { display: flex; align-items: center; gap: 14px; padding: 20px; border: 1px dashed var(--n-border-color); border-radius: 8px; background: var(--n-color-embedded); }
+.provider-disabled-icon { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 10px; color: var(--n-text-color-3); background: var(--n-color-modal); font-size: 12px; font-weight: 800; letter-spacing: .08em; }
+.provider-disabled-state strong { font-size: 14px; }
+.provider-disabled-state p { margin: 4px 0 0; color: var(--n-text-color-3); font-size: 12px; line-height: 1.5; }
+.provider-actions { display: flex; align-items: center; gap: 12px; }
+.provider-actions span { color: var(--n-text-color-3); font-size: 12px; }
+
+@media (max-width: 520px) {
+  .provider-actions { align-items: flex-start; flex-direction: column; }
 }
 </style>
