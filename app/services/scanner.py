@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import sqlite3
 import time
 from pathlib import Path
 
@@ -139,6 +140,14 @@ class Scanner:
                 )
                 result.created += 1
                 result.media_ids.append(media_id)
+                # Keep the in-memory index current in case the iterator yields
+                # the same path more than once (for example through links).
+                existing_paths.add(path_str)
+            except sqlite3.IntegrityError:
+                # Another scan may have inserted this record after our
+                # existence checks. The unique constraint is the atomic
+                # arbiter, so treat the losing insert as an ordinary skip.
+                result.skipped += 1
             except (OSError, ValueError) as exc:
                 result.failed += 1
                 result.errors.append(f"{path.name}: {exc}")

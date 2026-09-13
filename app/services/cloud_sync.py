@@ -23,6 +23,22 @@ def _as_bool(value: Any, default: bool = False) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _json_object(response: httpx.Response, operation: str) -> dict[str, Any]:
+    """Parse a cloud response and turn empty/non-JSON bodies into useful errors."""
+    try:
+        body = response.json()
+    except ValueError as exc:
+        content_type = response.headers.get("content-type", "")
+        detail = f"HTTP {response.status_code}"
+        if content_type:
+            detail += f"，Content-Type: {content_type.split(';', 1)[0]}"
+        detail += "，响应为空" if not response.text.strip() else "，响应不是 JSON"
+        raise RuntimeError(f"{operation}：{detail}，请检查云端地址和接口版本") from exc
+    if not isinstance(body, dict):
+        raise RuntimeError(f"{operation}：云端返回的数据格式不正确，请检查接口版本")
+    return body
+
+
 class CloudSyncService:
     """将本地转录和 AI 结果幂等上传到云端。"""
 
@@ -63,11 +79,11 @@ class CloudSyncService:
                 trust_env=False,
             )
             response.raise_for_status()
-            body = response.json()
+            body = _json_object(response, "云端响应无效")
             if body.get("code", 200) != 200:
                 return {"available": False, "message": body.get("msg") or "云端鉴权失败"}
             return {"available": True, "message": "云端连接正常"}
-        except (httpx.HTTPError, ValueError) as exc:
+        except (httpx.HTTPError, RuntimeError) as exc:
             return {"available": False, "message": f"云端连接失败：{exc}"}
 
     def sync_task(self, task_id: int, *, force: bool = False) -> dict[str, Any]:
@@ -125,7 +141,7 @@ class CloudSyncService:
             try:
                 response = httpx.post(url, json=payload, headers={"X-Archive-Token": config["token"]}, timeout=config["timeoutSeconds"], trust_env=False)
                 response.raise_for_status()
-                result = response.json()
+                result = _json_object(response, "云端响应无效")
                 if result.get("code", 200) != 200:
                     raise RuntimeError(result.get("msg") or "云端接口返回失败")
                 remote_id = (result.get("data") or {}).get("id") or result.get("id")
