@@ -12,14 +12,14 @@ class AIAnalysisTaskRepository:
             LEFT JOIN processing_task p ON p.id=t.task_id
             LEFT JOIN media_file m ON m.id=p.media_file_id WHERE a.id=?""", (task_id,))
 
-    def list(self, status: str | None = None, limit: int = 100):
+    def list(self, status: str | None = None):
         sql = """SELECT a.*, t.task_id AS transcription_task_id, m.file_name
             FROM ai_analysis_task a JOIN transcript t ON t.id=a.transcript_id
             JOIN processing_task p ON p.id=t.task_id JOIN media_file m ON m.id=p.media_file_id"""
         params = []
         if status:
             sql += " WHERE a.status=?"; params.append(status)
-        sql += " ORDER BY a.created_at DESC LIMIT ?"; params.append(limit)
+        sql += " ORDER BY a.created_at DESC"
         return self.database.fetch_all(sql, tuple(params))
 
     def active(self, transcript_id: int, analysis_type: str):

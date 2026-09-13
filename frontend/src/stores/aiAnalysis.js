@@ -43,6 +43,8 @@ export const useAiAnalysisStore = defineStore('aiAnalysis', () => {
   async function retryTask(id) { await api.retryAiTask(id); await fetchTasks() }
   async function reanalyzeTask(id) { await api.reanalyzeAiTask(id); await fetchTasks() }
   async function deleteTask(id) { await api.deleteAiTask(id); removeRealtimeTask(id) }
+  async function pauseAllTasks() { const result = await api.pauseAllAiTasks(); await fetchTasks(); return result }
+  async function startAllTasks() { const result = await api.startAllAiTasks(); await fetchTasks(); return result }
 
   function mergeRealtimeTask(update) {
     const index = tasks.value.findIndex(task => task.id === update.taskId)
@@ -68,5 +70,5 @@ export const useAiAnalysisStore = defineStore('aiAnalysis', () => {
 
   function removeRealtimeTask(id) { tasks.value = tasks.value.filter(task => task.id !== id) }
 
-  return { tasks, loading, stats, fetchTasks, mergeRealtimeTask, removeRealtimeTask, startTask, pauseTask, cancelTask, retryTask, reanalyzeTask, deleteTask }
+  return { tasks, loading, stats, fetchTasks, mergeRealtimeTask, removeRealtimeTask, startTask, pauseTask, cancelTask, retryTask, reanalyzeTask, deleteTask, pauseAllTasks, startAllTasks }
 })

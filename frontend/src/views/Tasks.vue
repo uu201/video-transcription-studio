@@ -58,6 +58,27 @@
       </div>
     </section>
 
+    <section v-if="aiActiveTasks.length" class="active-workspace ai-active-workspace">
+      <div class="active-workspace-heading">
+        <div>
+          <span class="section-kicker">LIVE AI ANALYSIS</span>
+          <h2>正在分析</h2>
+        </div>
+        <n-tag type="warning" size="small">{{ aiActiveTasks.length }} 个任务进行中</n-tag>
+      </div>
+      <div class="active-task-grid">
+        <article v-for="task in aiActiveTasks" :key="task.id" class="active-task-card">
+          <div class="active-task-topline">
+            <span class="task-number">#{{ task.id }}</span>
+            <n-tag type="warning" size="small">{{ safeProgress(task.progress) }}%
+            </n-tag>
+          </div>
+          <h3>{{ task.fileName || '未知文件' }}</h3>
+          <n-text depth="3" class="active-task-message">{{ task.message || '正在分析' }}</n-text>
+        </article>
+      </div>
+    </section>
+
     <n-tabs v-model:value="queueTab" type="line" animated>
       <n-tab-pane name="transcription" tab="转录队列">
     <!-- 搜索和过滤 -->
@@ -83,13 +104,21 @@
           <n-radio-button value="FAILED">失败 ({{ taskStore.taskStats.failed }})</n-radio-button>
           <n-radio-button value="CANCELED">已取消 ({{ taskStore.taskStats.canceled }})</n-radio-button>
         </n-radio-group>
+        <n-space>
+          <n-button type="warning" size="small" @click="handlePauseAll">全部暂停</n-button>
+          <n-button type="success" size="small" @click="handleStartAll">全部开始</n-button>
+        </n-space>
       </n-space>
     </n-card>
       </n-tab-pane>
       <n-tab-pane name="ai" tab="AI 分析队列">
         <n-card>
           <n-empty v-if="!aiTasks.length" description="暂无 AI 分析任务" />
-          <n-data-table v-else :columns="aiColumns" :data="aiTasks" :loading="aiStore.loading" :pagination="{ pageSize: 20 }" />
+          <n-space justify="end" style="margin-bottom: 12px">
+            <n-button type="warning" size="small" @click="handleAiPauseAll">全部暂停</n-button>
+            <n-button type="success" size="small" @click="handleAiStartAll">全部开始</n-button>
+          </n-space>
+          <n-data-table v-if="aiTasks.length" :columns="aiColumns" :data="aiTasks" :loading="aiStore.loading" :pagination="{ pageSize: 20 }" />
         </n-card>
       </n-tab-pane>
     </n-tabs>
@@ -162,6 +191,7 @@ const filteredTasks = computed(() => {
 
 const activeTasks = computed(() => taskStore.tasks.filter(task => task.status === 'RUNNING'))
 const aiTasks = computed(() => aiStore.tasks)
+const aiActiveTasks = computed(() => aiStore.tasks.filter(task => task.status === 'RUNNING'))
 
 const statusTypeMap = {
   QUEUED: 'default',
@@ -414,6 +444,42 @@ function connectRealtime() {
         connectRealtime()
       }, 3000)
     }
+  }
+}
+
+async function handlePauseAll() {
+  try {
+    const result = await taskStore.pauseAllTasks()
+    message.info(`已请求暂停 ${result.updated || 0} 个转录任务`)
+  } catch (error) {
+    message.error('全部暂停失败')
+  }
+}
+
+async function handleStartAll() {
+  try {
+    const result = await taskStore.startAllTasks()
+    message.success(`已恢复 ${result.updated || 0} 个转录任务`)
+  } catch (error) {
+    message.error('全部开始失败')
+  }
+}
+
+async function handleAiPauseAll() {
+  try {
+    const result = await aiStore.pauseAllTasks()
+    message.info(`已请求暂停 ${result.updated || 0} 个 AI 任务`)
+  } catch (error) {
+    message.error('AI 全部暂停失败')
+  }
+}
+
+async function handleAiStartAll() {
+  try {
+    const result = await aiStore.startAllTasks()
+    message.success(`已恢复 ${result.updated || 0} 个 AI 任务`)
+  } catch (error) {
+    message.error('AI 全部开始失败')
   }
 }
 

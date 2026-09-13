@@ -20,9 +20,67 @@ def _publish_ai_event(request: Request, event_type: str, task_id: int, *, status
     if event_hub:
         event_hub.publish({"type": event_type, "taskId": task_id, "status": status_value, "message": message, "updatedAt": utc_now(), **extra})
 @router.get("/tasks")
-def list_ai_tasks(status_filter: str | None = Query(None, alias="status"), transcript_id: int | None = Query(None, alias="transcriptId"), limit: int = Query(100, ge=1, le=500), db: Database = Depends(database)):
-    items = [_item(r) for r in AIAnalysisTaskRepository(db).list(status_filter, limit)]
+def list_ai_tasks(status_filter: str | None = Query(None, alias="status"), transcript_id: int | None = Query(None, alias="transcriptId"), db: Database = Depends(database)):
+    items = [_item(r) for r in AIAnalysisTaskRepository(db).list(status_filter)]
     return [item for item in items if transcript_id is None or item["transcriptId"] == transcript_id]
+
+
+@router.post("/tasks/pause-all", status_code=202)
+def pause_all_ai_tasks(request: Request, db: Database = Depends(database)):
+    """Pause every queued AI task and request a pause for active analysis."""
+    now = utc_now()
+    with db.connection() as connection:
+        rows = connection.execute(
+            "SELECT id, status FROM ai_analysis_task WHERE status IN ('QUEUED', 'RUNNING') ORDER BY id"
+        ).fetchall()
+        for row in rows:
+            if row["status"] == "QUEUED":
+                connection.execute(
+                    "UPDATE ai_analysis_task SET status='PAUSED', pause_requested=1, message='已暂停', updated_at=? WHERE id=? AND status='QUEUED'",
+                    (now, row["id"]),
+                )
+            else:
+                connection.execute(
+                    "UPDATE ai_analysis_task SET pause_requested=1, message='正在等待暂停', updated_at=? WHERE id=? AND status='RUNNING'",
+                    (now, row["id"]),
+                )
+    for row in rows:
+        _publish_ai_event(
+            request,
+            "ai.task.updated",
+            int(row["id"]),
+            status_value="PAUSED" if row["status"] == "QUEUED" else "RUNNING",
+            message="已暂停" if row["status"] == "QUEUED" else "正在等待暂停",
+            progress=0,
+            pauseRequested=True,
+        )
+    return {"updated": len(rows)}
+
+
+@router.post("/tasks/start-all", status_code=202)
+def start_all_ai_tasks(request: Request, db: Database = Depends(database)):
+    """Resume every paused AI task."""
+    now = utc_now()
+    with db.connection() as connection:
+        rows = connection.execute(
+            "SELECT id FROM ai_analysis_task WHERE status='PAUSED' ORDER BY id"
+        ).fetchall()
+        connection.execute(
+            "UPDATE ai_analysis_task SET status='QUEUED', pause_requested=0, cancel_requested=0, message='等待分析', worker_id=NULL, heartbeat_at=NULL, updated_at=? WHERE status='PAUSED'",
+            (now,),
+        )
+    for row in rows:
+        _publish_ai_event(
+            request,
+            "ai.task.updated",
+            int(row["id"]),
+            status_value="QUEUED",
+            message="等待分析",
+            progress=0,
+            pauseRequested=False,
+            cancelRequested=False,
+        )
+    return {"updated": len(rows)}
 @router.get("/tasks/{task_id}")
 def get_ai_task(task_id: int, db: Database = Depends(database)):
     row=AIAnalysisTaskRepository(db).get(task_id)

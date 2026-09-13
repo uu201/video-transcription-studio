@@ -24,7 +24,9 @@ class TaskWorkerPool:
         self.worker_count = worker_count or getattr(settings, 'worker_count', 2)
         self.workers = []
         self._stop = threading.Event()
-        self._task_queue = Queue(maxsize=100)
+        self._task_queue = Queue()
+        # Only claim as many tasks as there are workers. RUNNING then means active work.
+        self._worker_slots = threading.BoundedSemaphore(self.worker_count)
         self._condition = threading.Condition()
         self._dispatcher_thread = None
 
@@ -43,7 +45,8 @@ class TaskWorkerPool:
                 event_hub=self.event_hub,
                 worker_id=f"worker-{i+1}-{uuid.uuid4().hex[:6]}",
                 task_queue=self._task_queue,
-                stop_event=self._stop
+                stop_event=self._stop,
+                worker_slots=self._worker_slots
             )
             worker.start()
             self.workers.append(worker)
@@ -135,15 +138,19 @@ class TaskWorkerPool:
         """任务分发线程：轮询数据库并将任务放入队列。"""
         while not self._stop.is_set():
             try:
-                # 如果队列已满，等待
-                if self._task_queue.full():
-                    self._stop.wait(1)
+                # 没有空闲 Worker 时等待
+                if not self._worker_slots.acquire(blocking=False):
+                    self._stop.wait(0.2)
                     continue
 
                 # 查询待处理任务
                 task_id = self._claim_next()
                 if task_id:
-                    self._task_queue.put(task_id, timeout=1)
+                    try:
+                        self._task_queue.put(task_id, timeout=1)
+                    except Exception:
+                        self._worker_slots.release()
+                        raise
                     LOGGER.debug(f"任务 {task_id} 已加入队列")
                 else:
                     # 没有任务时等待通知或超时
@@ -163,6 +170,7 @@ class TaskWorkerPool:
             ).fetchone()
 
             if not row:
+                self._worker_slots.release()
                 return None
 
             # 标记任务为已领取但未分配 Worker
@@ -172,6 +180,7 @@ class TaskWorkerPool:
             ).rowcount
 
             if changed != 1:
+                self._worker_slots.release()
                 return None
 
             connection.execute(
@@ -188,7 +197,7 @@ class TaskWorkerPool:
 class TaskWorker:
     """单个任务处理 Worker。"""
 
-    def __init__(self, settings: Settings, database: Database, event_hub=None, worker_id: str = None, task_queue: Queue = None, stop_event: threading.Event = None):
+    def __init__(self, settings: Settings, database: Database, event_hub=None, worker_id: str = None, task_queue: Queue = None, stop_event: threading.Event = None, worker_slots: threading.BoundedSemaphore = None):
         self.settings = settings
         self.database = database
         self.event_hub = event_hub
@@ -196,6 +205,7 @@ class TaskWorker:
         self.worker_id = worker_id or f"worker-{uuid.uuid4().hex[:8]}"
         self.task_queue = task_queue
         self.stop_event = stop_event or threading.Event()
+        self.worker_slots = worker_slots
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
@@ -236,6 +246,8 @@ class TaskWorker:
                 LOGGER.info(f"Worker {self.worker_id} 完成任务 {task_id}")
 
                 self.task_queue.task_done()
+                if self.worker_slots:
+                    self.worker_slots.release()
 
             except Empty:
                 # 队列为空，继续等待
@@ -246,5 +258,7 @@ class TaskWorker:
                     self.task_queue.task_done()
                 except ValueError:
                     pass
+                if self.worker_slots:
+                    self.worker_slots.release()
 
         LOGGER.info(f"Worker {self.worker_id} 已停止")

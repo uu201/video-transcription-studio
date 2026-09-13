@@ -27,7 +27,7 @@ class TaskInput(BaseModel):
 class BatchTaskInput(BaseModel):
     """批量创建任务的参数。"""
 
-    mediaFileIds: list[int] = Field(min_length=1, max_length=500)
+    mediaFileIds: list[int] = Field(min_length=1)
     language: str = "auto"
 
 
@@ -59,14 +59,14 @@ def _publish_task_deleted(request: Request, task_id: int) -> None:
 
 
 @router.get("")
-def list_tasks(response: Response, status_filter: str | None = Query(default=None, alias="status"), limit: int = Query(default=100, ge=1, le=500), db: Database = Depends(database)) -> list[dict]:
+def list_tasks(response: Response, status_filter: str | None = Query(default=None, alias="status"), db: Database = Depends(database)) -> list[dict]:
     """分页返回任务。"""
     # 任务列表缓存 3 秒，因为状态会频繁变化
     response.headers["Cache-Control"] = "public, max-age=3"
     if status_filter:
-        rows = db.fetch_all(TASK_QUERY + " WHERE t.status = ? ORDER BY t.created_at DESC LIMIT ?", (status_filter, limit))
+        rows = db.fetch_all(TASK_QUERY + " WHERE t.status = ? ORDER BY t.created_at DESC", (status_filter,))
     else:
-        rows = db.fetch_all(TASK_QUERY + " ORDER BY t.created_at DESC LIMIT ?", (limit,))
+        rows = db.fetch_all(TASK_QUERY + " ORDER BY t.created_at DESC")
     return [_task(row) for row in rows]
 
 
@@ -122,6 +122,71 @@ def create_tasks(payload: BatchTaskInput, request: Request, db: Database = Depen
     if worker and created_ids:
         worker.notify_new_task()
     return {"created": len(created_ids), "taskIds": created_ids, "skippedMediaIds": skipped_ids}
+
+
+@router.post("/pause-all", status_code=status.HTTP_202_ACCEPTED)
+def pause_all_tasks(request: Request, db: Database = Depends(database)) -> dict:
+    """Pause every queued task immediately and request a pause for active workers."""
+    now = utc_now()
+    with db.connection() as connection:
+        rows = connection.execute(
+            "SELECT id, status FROM processing_task WHERE status IN ('QUEUED', 'RUNNING') ORDER BY id"
+        ).fetchall()
+        for row in rows:
+            if row["status"] == TaskStatus.QUEUED.value:
+                connection.execute(
+                    "UPDATE processing_task SET status='PAUSED', pause_requested=1, message='已暂停', updated_at=? WHERE id=? AND status='QUEUED'",
+                    (now, row["id"]),
+                )
+            else:
+                connection.execute(
+                    "UPDATE processing_task SET pause_requested=1, message='正在等待暂停', updated_at=? WHERE id=? AND status='RUNNING'",
+                    (now, row["id"]),
+                )
+            connection.execute(
+                "INSERT INTO task_event (task_id, stage, level, message, created_at) VALUES (?, 'PAUSED', 'INFO', ?, ?)",
+                (row["id"], "已暂停" if row["status"] == TaskStatus.QUEUED.value else "正在等待暂停", now),
+            )
+    for row in rows:
+        _publish_task_event(
+            request,
+            int(row["id"]),
+            status_value="PAUSED" if row["status"] == TaskStatus.QUEUED.value else "RUNNING",
+            message="已暂停" if row["status"] == TaskStatus.QUEUED.value else "正在等待暂停",
+            pause_requested=True,
+        )
+    return {"updated": len(rows)}
+
+
+@router.post("/start-all", status_code=status.HTTP_202_ACCEPTED)
+def start_all_tasks(request: Request, db: Database = Depends(database)) -> dict:
+    """Resume every paused transcription task."""
+    now = utc_now()
+    with db.connection() as connection:
+        rows = connection.execute(
+            "SELECT id FROM processing_task WHERE status='PAUSED' ORDER BY id"
+        ).fetchall()
+        connection.execute(
+            "UPDATE processing_task SET status='QUEUED', pause_requested=0, cancel_requested=0, message='等待处理', worker_id=NULL, heartbeat_at=NULL, updated_at=? WHERE status='PAUSED'",
+            (now,),
+        )
+        connection.executemany(
+            "INSERT INTO task_event (task_id, stage, level, message, created_at) VALUES (?, 'QUEUED', 'INFO', '任务已恢复，等待处理', ?)",
+            [(row["id"], now) for row in rows],
+        )
+    for row in rows:
+        _publish_task_event(
+            request,
+            int(row["id"]),
+            status_value="QUEUED",
+            message="等待处理",
+            pause_requested=False,
+            cancel_requested=False,
+        )
+    worker = getattr(request.app.state, "worker", None)
+    if worker and rows:
+        worker.notify_new_task()
+    return {"updated": len(rows)}
 
 
 @router.get("/{task_id}")

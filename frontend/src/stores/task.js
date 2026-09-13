@@ -134,6 +134,18 @@ export const useTaskStore = defineStore('task', () => {
     }
   }
 
+  async function pauseAllTasks() {
+    const result = await api.pauseAllTasks()
+    await fetchTasks()
+    return result
+  }
+
+  async function startAllTasks() {
+    const result = await api.startAllTasks()
+    await fetchTasks()
+    return result
+  }
+
   return {
     tasks,
     loading,
@@ -147,6 +159,8 @@ export const useTaskStore = defineStore('task', () => {
     cancelTask,
     pauseTask,
     resumeTask,
-    deleteTask
+    deleteTask,
+    pauseAllTasks,
+    startAllTasks
   }
 })

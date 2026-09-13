@@ -217,7 +217,7 @@ def create_app() -> FastAPI:
         subscriber = event_hub.subscribe()
         try:
             await websocket.send_json({"type": "connected", "message": "任务实时通道已连接"})
-            snapshot = database.fetch_all("SELECT t.id, t.status, t.current_stage AS stage, t.progress, t.message, t.pause_requested AS pauseRequested, t.cancel_requested AS cancelRequested, t.updated_at AS updatedAt, m.file_name AS fileName, m.path FROM processing_task t JOIN media_file m ON m.id = t.media_file_id ORDER BY t.created_at DESC LIMIT 100")
+            snapshot = database.fetch_all("SELECT t.id, t.status, t.current_stage AS stage, t.progress, t.message, t.pause_requested AS pauseRequested, t.cancel_requested AS cancelRequested, t.updated_at AS updatedAt, m.file_name AS fileName, m.path FROM processing_task t JOIN media_file m ON m.id = t.media_file_id ORDER BY t.created_at DESC")
             await websocket.send_json({"type": "task.snapshot", "tasks": [dict(row) for row in snapshot]})
             while True:
                 payload = await __import__("asyncio").to_thread(event_hub.wait, subscriber, 2)

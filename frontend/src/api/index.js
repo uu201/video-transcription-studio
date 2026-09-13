@@ -91,6 +91,9 @@ export default {
   },
   getAiTask(id) { return request.get(`/ai/tasks/${id}`) },
 
+  pauseAllAiTasks() { return request.post('/ai/tasks/pause-all') },
+  startAllAiTasks() { return request.post('/ai/tasks/start-all') },
+
   createAiAnalysis(transcriptId, data) {
     return request.post(`/ai/transcripts/${transcriptId}`, data)
   },
@@ -115,6 +118,14 @@ export default {
 
   createTasks(data) {
     return request.post('/tasks/batch', data)
+  },
+
+  pauseAllTasks() {
+    return request.post('/tasks/pause-all')
+  },
+
+  startAllTasks() {
+    return request.post('/tasks/start-all')
   },
 
   retryTask(id) {
