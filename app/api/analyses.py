@@ -27,31 +27,25 @@ def list_ai_tasks(status_filter: str | None = Query(None, alias="status"), trans
 
 @router.post("/tasks/pause-all", status_code=202)
 def pause_all_ai_tasks(request: Request, db: Database = Depends(database)):
-    """Pause every queued AI task and request a pause for active analysis."""
+    """Pause every queued or running AI task immediately."""
     now = utc_now()
     with db.connection() as connection:
         rows = connection.execute(
-            "SELECT id, status FROM ai_analysis_task WHERE status IN ('QUEUED', 'RUNNING') ORDER BY id"
+            "SELECT id, progress FROM ai_analysis_task WHERE status IN ('QUEUED', 'RUNNING') ORDER BY id"
         ).fetchall()
         for row in rows:
-            if row["status"] == "QUEUED":
-                connection.execute(
-                    "UPDATE ai_analysis_task SET status='PAUSED', pause_requested=1, message='已暂停', updated_at=? WHERE id=? AND status='QUEUED'",
-                    (now, row["id"]),
-                )
-            else:
-                connection.execute(
-                    "UPDATE ai_analysis_task SET pause_requested=1, message='正在等待暂停', updated_at=? WHERE id=? AND status='RUNNING'",
-                    (now, row["id"]),
-                )
+            connection.execute(
+                "UPDATE ai_analysis_task SET status='PAUSED', pause_requested=1, message='已暂停', updated_at=? WHERE id=? AND status IN ('QUEUED', 'RUNNING')",
+                (now, row["id"]),
+            )
     for row in rows:
         _publish_ai_event(
             request,
             "ai.task.updated",
             int(row["id"]),
-            status_value="PAUSED" if row["status"] == "QUEUED" else "RUNNING",
-            message="已暂停" if row["status"] == "QUEUED" else "正在等待暂停",
-            progress=0,
+            status_value="PAUSED",
+            message="已暂停",
+            progress=int(row["progress"] or 0),
             pauseRequested=True,
         )
     return {"updated": len(rows)}
@@ -91,8 +85,8 @@ def retry_ai_task(task_id: int, request: Request, db: Database = Depends(databas
     repo=AIAnalysisTaskRepository(db); row=repo.get(task_id)
     if not row: raise HTTPException(404, "AI 分析任务不存在")
     if row['status'] not in ('FAILED','CANCELED'): raise HTTPException(409, "当前状态不允许重试")
-    repo.update(task_id,status='QUEUED',progress=0,message='等待分析',error_code=None,error_message=None,error_detail=None,retryable=0,cancel_requested=0,worker_id=None,started_at=None,finished_at=None)
-    _publish_ai_event(request, "ai.task.updated", task_id, status_value="QUEUED", message="等待分析", progress=0, cancelRequested=False)
+    repo.update(task_id,status='QUEUED',progress=0,message='等待分析',error_code=None,error_message=None,error_detail=None,retryable=0,cancel_requested=0,pause_requested=0,worker_id=None,started_at=None,finished_at=None)
+    _publish_ai_event(request, "ai.task.updated", task_id, status_value="QUEUED", message="等待分析", progress=0, pauseRequested=False, cancelRequested=False)
     return get_ai_task(task_id,db)
 @router.post("/tasks/{task_id}/reanalyze", status_code=202)
 def reanalyze_ai_task(task_id: int, request: Request, db: Database = Depends(database)):
@@ -105,13 +99,10 @@ def reanalyze_ai_task(task_id: int, request: Request, db: Database = Depends(dat
 def cancel_ai_task(task_id: int, request: Request, db: Database = Depends(database)):
     repo=AIAnalysisTaskRepository(db); row=repo.get(task_id)
     if not row: raise HTTPException(404, "AI 分析任务不存在")
-    if row['status']=='QUEUED':
-        repo.update(task_id,status='CANCELED',message='已取消',finished_at=utc_now())
-        _publish_ai_event(request, "ai.task.updated", task_id, status_value="CANCELED", message="已取消", cancelRequested=True)
-    elif row['status']=='RUNNING':
-        repo.update(task_id,cancel_requested=1,message='正在取消')
-        _publish_ai_event(request, "ai.task.updated", task_id, status_value="RUNNING", message="正在取消", cancelRequested=True)
-    else: raise HTTPException(409, "当前状态不允许取消")
+    if row['status'] not in ('QUEUED', 'RUNNING', 'PAUSED'):
+        raise HTTPException(409, "当前状态不允许取消")
+    repo.update(task_id,status='CANCELED',cancel_requested=1,message='已取消',finished_at=utc_now())
+    _publish_ai_event(request, "ai.task.updated", task_id, status_value="CANCELED", message="已取消", progress=row['progress'], cancelRequested=True)
     return get_ai_task(task_id,db)
 @router.post("/tasks/{task_id}/start")
 def start_ai_task(task_id: int, request: Request, db: Database = Depends(database)):
@@ -125,13 +116,10 @@ def start_ai_task(task_id: int, request: Request, db: Database = Depends(databas
 def pause_ai_task(task_id: int, request: Request, db: Database = Depends(database)):
     repo=AIAnalysisTaskRepository(db); row=repo.get(task_id)
     if not row: raise HTTPException(404, "AI 分析任务不存在")
-    if row['status']=='QUEUED':
-        repo.update(task_id,status='PAUSED',pause_requested=1,message='已暂停')
-        _publish_ai_event(request, "ai.task.updated", task_id, status_value="PAUSED", message="已暂停", pauseRequested=True)
-    elif row['status']=='RUNNING':
-        repo.update(task_id,pause_requested=1,message='正在等待暂停')
-        _publish_ai_event(request, "ai.task.updated", task_id, status_value="RUNNING", message="正在等待暂停", pauseRequested=True)
-    else: raise HTTPException(409, "当前状态不允许暂停")
+    if row['status'] not in ('QUEUED', 'RUNNING'):
+        raise HTTPException(409, "当前状态不允许暂停")
+    repo.update(task_id,status='PAUSED',pause_requested=1,message='已暂停')
+    _publish_ai_event(request, "ai.task.updated", task_id, status_value="PAUSED", message="已暂停", progress=row['progress'], pauseRequested=True)
     return get_ai_task(task_id,db)
 @router.delete("/tasks/{task_id}", status_code=204)
 def delete_ai_task(task_id: int, request: Request, db: Database = Depends(database)):

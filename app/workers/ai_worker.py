@@ -1,6 +1,7 @@
 """独立 AI 分析 Worker。"""
 from __future__ import annotations
 import logging, threading, uuid, json
+from queue import Empty, Queue
 from app.db.database import utc_now
 from app.repositories.ai_analysis_task import AIAnalysisTaskRepository
 from app.services.ai_analysis_queue import AIAnalysisQueueService
@@ -10,19 +11,58 @@ from app.services.cloud_sync import auto_sync_task
 LOGGER = logging.getLogger(__name__)
 
 class AIWorkerPool:
-    def __init__(self, settings, database, event_hub=None, worker_count=1):
+    def __init__(self, settings, database, event_hub=None, worker_count=None):
         self.settings, self.database, self.event_hub = settings, database, event_hub
-        self.worker_count = worker_count or 1; self.stop_event = threading.Event(); self.threads=[]
+        self.worker_count = max(1, int(worker_count or getattr(settings, 'ai_worker_count', 3)))
+        self.stop_event = threading.Event(); self.threads=[]
         self.repo = AIAnalysisTaskRepository(database)
     def start(self):
         if self.threads: return
+        self._recover_interrupted_tasks()
         for _ in range(self.worker_count):
             t=threading.Thread(target=self._run, args=(f"ai-{uuid.uuid4().hex[:8]}",), daemon=True); t.start(); self.threads.append(t)
+        LOGGER.info("AIWorkerPool 已启动，Worker 数量: %d", self.worker_count)
     def stop(self):
         self.stop_event.set()
         for t in self.threads: t.join(timeout=3)
         self.threads=[]
     def notify_new_task(self): pass
+
+    def _recover_interrupted_tasks(self):
+        """Recover AI tasks left RUNNING after a process interruption."""
+        now = utc_now()
+        with self.database.connection() as conn:
+            rows = conn.execute(
+                "SELECT id, cancel_requested, pause_requested FROM ai_analysis_task WHERE status='RUNNING'"
+            ).fetchall()
+            for row in rows:
+                if row['cancel_requested']:
+                    status, message = 'CANCELED', '已取消'
+                    conn.execute(
+                        "UPDATE ai_analysis_task SET status=?, message=?, finished_at=?, worker_id=NULL, heartbeat_at=NULL, updated_at=? WHERE id=?",
+                        (status, message, now, now, row['id']),
+                    )
+                elif row['pause_requested']:
+                    status, message = 'PAUSED', '已暂停'
+                    conn.execute(
+                        "UPDATE ai_analysis_task SET status=?, message=?, worker_id=NULL, heartbeat_at=NULL, updated_at=? WHERE id=?",
+                        (status, message, now, row['id']),
+                    )
+                else:
+                    status, message = 'QUEUED', '服务中断，已重新排队'
+                    conn.execute(
+                        "UPDATE ai_analysis_task SET status=?, progress=0, message=?, worker_id=NULL, heartbeat_at=NULL, started_at=NULL, updated_at=? WHERE id=?",
+                        (status, message, now, row['id']),
+                    )
+        for row in rows:
+            if row['cancel_requested']:
+                status, message = 'CANCELED', '已取消'
+            elif row['pause_requested']:
+                status, message = 'PAUSED', '已暂停'
+            else:
+                status, message = 'QUEUED', '服务中断，已重新排队'
+            self._publish('ai.task.updated', int(row['id']), status, message)
+
     def _run(self, worker_id):
         while not self.stop_event.is_set():
             task_id=self.repo.claim_next(worker_id)
@@ -31,9 +71,54 @@ class AIWorkerPool:
             self._publish('ai.task.updated', task_id, 'RUNNING', '开始分析', progress=1)
             try: self._process(task_id)
             except Exception as exc:
+                state = self.database.fetch_one("SELECT status, cancel_requested, pause_requested FROM ai_analysis_task WHERE id=?", (task_id,))
+                if not state or state['status'] in ('CANCELED', 'PAUSED') or state['cancel_requested'] or state['pause_requested']:
+                    continue
                 LOGGER.exception("AI 任务 #%s 失败", task_id)
                 self.repo.update(task_id,status='FAILED',error_code='AI_REQUEST_FAILED',error_message='AI 分析失败',error_detail=str(exc),retryable=1,finished_at=utc_now(),message='分析失败')
                 self._publish('ai.task.failed', task_id, 'FAILED', '分析失败')
+
+    def _requested_state(self, task_id):
+        state = self.database.fetch_one(
+            "SELECT status, cancel_requested, pause_requested FROM ai_analysis_task WHERE id=?",
+            (task_id,),
+        )
+        if not state or state['status'] == 'CANCELED' or state['cancel_requested']:
+            return 'CANCELED'
+        if state['status'] == 'PAUSED' or state['pause_requested']:
+            return 'PAUSED'
+        if state['status'] != 'RUNNING':
+            return state['status']
+        return None
+
+    def _generate_interruptibly(self, task_id, provider, prompt, options):
+        """Wait for the provider without blocking pause/cancel queue control."""
+        result_queue = Queue(maxsize=1)
+
+        def request():
+            try:
+                result_queue.put(('result', provider.generate(prompt, options)))
+            except Exception as exc:
+                result_queue.put(('error', exc))
+
+        threading.Thread(
+            target=request,
+            name=f"ai-request-{task_id}",
+            daemon=True,
+        ).start()
+        while not self.stop_event.is_set():
+            try:
+                kind, value = result_queue.get(timeout=0.25)
+                if kind == 'error':
+                    raise value
+                return value
+            except Empty:
+                if self._requested_state(task_id):
+                    cancel = getattr(provider, 'cancel', None)
+                    if callable(cancel):
+                        threading.Thread(target=cancel, name=f"ai-cancel-{task_id}", daemon=True).start()
+                    return None
+        return None
     def _process(self, task_id):
         row=self.repo.get(task_id)
         if not row: return
@@ -119,7 +204,7 @@ class AIWorkerPool:
         prompt_parts.append('\n原文：\n' + text)
         prompt = '\n\n'.join(prompt_parts)
         self._set_progress(task_id, 25, '等待 AI 返回')
-        result=provider.generate(prompt, {
+        result=self._generate_interruptibly(task_id, provider, prompt, {
             'temperature': 0.2,
             'system_prompt': (
                 '你是严谨的中文知识类、商业类和个人成长类内容分析师。'
@@ -127,6 +212,8 @@ class AIWorkerPool:
                 '不得臆测、补充或弱化作者没有明确表达的内容。'
             ),
         })
+        if result is None:
+            return
         state = self.database.fetch_one("SELECT cancel_requested, pause_requested FROM ai_analysis_task WHERE id=?", (task_id,))
         if state and state['cancel_requested']:
             self.repo.update(task_id,status='CANCELED',message='已取消',finished_at=utc_now())
@@ -166,7 +253,13 @@ class AIWorkerPool:
         auto_sync_task(self.database, row['transcription_task_id'])
     def _set_progress(self, task_id, progress, message):
         """持久化并广播 AI 分析阶段进度。"""
-        self.repo.update(task_id, progress=progress, message=message)
+        changed = self.database.execute(
+            "UPDATE ai_analysis_task SET progress=?, message=?, heartbeat_at=?, updated_at=? "
+            "WHERE id=? AND status='RUNNING' AND cancel_requested=0 AND pause_requested=0",
+            (progress, message, utc_now(), utc_now(), task_id),
+        )
+        if not changed:
+            raise RuntimeError('AI task is no longer running')
         self._publish('ai.task.updated', task_id, 'RUNNING', message, progress=progress)
     def _publish(self, typ, task_id, status, message, progress=0):
         if self.event_hub: self.event_hub.publish({'type':typ,'taskId':task_id,'status':status,'progress':progress,'message':message,'updatedAt':utc_now()})

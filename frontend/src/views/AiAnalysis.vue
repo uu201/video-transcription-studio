@@ -73,6 +73,10 @@
           <n-radio-button value="FAILED">失败 ({{ store.stats.failed }})</n-radio-button>
           <n-radio-button value="CANCELED">已取消 ({{ store.stats.canceled }})</n-radio-button>
         </n-radio-group>
+        <n-space>
+          <n-button type="warning" size="small" @click="handlePauseAll">全部暂停</n-button>
+          <n-button type="success" size="small" @click="handleStartAll">全部开始</n-button>
+        </n-space>
       </n-space>
     </n-card>
 
@@ -143,9 +147,9 @@ const columns = [
       const actions = [h(NButton, { text: true, type: 'primary', size: 'small', onClick: () => router.push(`/tasks/${row.transcriptionTaskId}`) }, { default: () => '查看详情', icon: () => h(NIcon, null, { default: () => h(DocumentTextOutline) }) })]
       if (row.status === 'QUEUED' || row.status === 'RUNNING') {
         actions.push(h(NButton, { text: true, type: 'warning', size: 'small', disabled: row.pauseRequested || row.cancelRequested, onClick: () => handlePause(row.id) }, { default: () => row.pauseRequested ? '等待暂停' : '暂停', icon: () => h(NIcon, null, { default: () => h(PauseOutline) }) }))
-        actions.push(h(NButton, { text: true, type: 'error', size: 'small', disabled: row.cancelRequested, onClick: () => handleCancel(row.id) }, { default: () => row.cancelRequested ? '正在取消' : '终止', icon: () => h(NIcon, null, { default: () => h(CloseCircleOutline) }) }))
       }
       if (row.status === 'PAUSED') actions.push(h(NButton, { text: true, type: 'success', size: 'small', onClick: () => handleStart(row.id) }, { default: () => '恢复', icon: () => h(NIcon, null, { default: () => h(PlayOutline) }) }))
+      if (row.status === 'QUEUED' || row.status === 'RUNNING' || row.status === 'PAUSED') actions.push(h(NButton, { text: true, type: 'error', size: 'small', disabled: row.cancelRequested, onClick: () => handleCancel(row.id) }, { default: () => row.cancelRequested ? '正在取消' : '终止', icon: () => h(NIcon, null, { default: () => h(CloseCircleOutline) }) }))
       if (row.status === 'FAILED' || row.status === 'CANCELED') actions.push(h(NButton, { text: true, type: 'success', size: 'small', onClick: () => handleRetry(row.id) }, { default: () => '重试', icon: () => h(NIcon, null, { default: () => h(RefreshCircleOutline) }) }))
       if (row.status === 'SUCCEEDED' || row.status === 'FAILED' || row.status === 'CANCELED') actions.push(h(NButton, { text: true, type: 'error', size: 'small', onClick: () => handleDelete(row.id) }, { default: () => '删除', icon: () => h(NIcon, null, { default: () => h(TrashOutline) }) }))
       return h('div', { style: 'display:flex;gap:8px;flex-wrap:wrap' }, actions)
@@ -161,6 +165,24 @@ function formatDateTime(value) {
   if (!value) return '--'
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+}
+
+async function handlePauseAll() {
+  try {
+    const result = await store.pauseAllTasks()
+    message.info(`已暂停 ${result.updated || 0} 个 AI 分析任务`)
+  } catch (error) {
+    message.error(error?.response?.data?.detail || '全部暂停失败')
+  }
+}
+
+async function handleStartAll() {
+  try {
+    const result = await store.startAllTasks()
+    message.success(`已恢复 ${result.updated || 0} 个 AI 分析任务`)
+  } catch (error) {
+    message.error(error?.response?.data?.detail || '全部开始失败')
+  }
 }
 
 function connectRealtime() {

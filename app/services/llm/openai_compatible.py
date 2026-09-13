@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 import httpx
@@ -24,6 +25,8 @@ class OpenAICompatibleProvider:
         except (TypeError, ValueError):
             timeout_value = self.DEFAULT_TIMEOUT_SECONDS
         self.timeout = max(1.0, timeout_value)
+        self._client_lock = threading.Lock()
+        self._active_client: httpx.Client | None = None
 
     def generate(self, prompt: str, options: dict[str, Any]) -> dict[str, Any]:
         """请求兼容接口并抽取统一结果。"""
@@ -35,12 +38,28 @@ class OpenAICompatibleProvider:
         if options.get("max_tokens") is not None:
             payload["max_tokens"] = int(options["max_tokens"])
         try:
-            response = httpx.post(f"{self.base_url}/chat/completions", headers={"Authorization": f"Bearer {self.api_key}"}, json=payload, timeout=self.timeout, trust_env=False)
-            response.raise_for_status()
-            raw = response.json()
-            return {"content": raw["choices"][0]["message"]["content"], "raw_response": raw, "model": raw.get("model", payload["model"]), "usage": raw.get("usage", {})}
-        except (httpx.HTTPError, KeyError, ValueError) as exc:
+            client = httpx.Client(timeout=self.timeout, trust_env=False)
+            with self._client_lock:
+                self._active_client = client
+            try:
+                response = client.post(f"{self.base_url}/chat/completions", headers={"Authorization": f"Bearer {self.api_key}"}, json=payload)
+                response.raise_for_status()
+                raw = response.json()
+                return {"content": raw["choices"][0]["message"]["content"], "raw_response": raw, "model": raw.get("model", payload["model"]), "usage": raw.get("usage", {})}
+            finally:
+                with self._client_lock:
+                    if self._active_client is client:
+                        self._active_client = None
+                client.close()
+        except (httpx.HTTPError, KeyError, ValueError, RuntimeError) as exc:
             raise AppError("AI_REQUEST_FAILED", "AI 分析请求失败", str(exc), True, "检查 Provider 地址和网络后重试") from exc
+
+    def cancel(self) -> None:
+        """Close the active request so a paused or canceled task releases promptly."""
+        with self._client_lock:
+            client = self._active_client
+        if client is not None:
+            client.close()
 
     def health_check(self) -> bool:
         """通过 models 端点做轻量检查。"""

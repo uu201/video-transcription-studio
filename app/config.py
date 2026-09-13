@@ -26,6 +26,7 @@ class Settings:
     stale_task_timeout_seconds: int = 1800
     max_concurrency: int = 1
     worker_count: int = 2  # 并发 Worker 数量
+    ai_worker_count: int = 3
     ffmpeg_dir: Path | None = None
     asr_model: str = "iic/SenseVoiceSmall"
     asr_device: str = "cpu"
@@ -85,6 +86,7 @@ def load_settings(root_dir: Path | None = None) -> Settings:
         stale_task_timeout_seconds=int(worker.get("stale_task_timeout_seconds", 1800)),
         max_concurrency=int(worker.get("max_concurrency", 1)),
         worker_count=int(os.getenv("VIDEO_TEXT_WORKER_COUNT", worker.get("worker_count", 2))),
+        ai_worker_count=max(1, int(os.getenv("VIDEO_TEXT_AI_WORKER_COUNT", ai.get("worker_count", 3)))),
         ffmpeg_dir=Path(os.getenv("VIDEO_TEXT_FFMPEG_DIR")) if os.getenv("VIDEO_TEXT_FFMPEG_DIR") else (Path(media["external_dir"]) if media.get("external_dir") else None),
         asr_model=asr.get("model", "iic/SenseVoiceSmall"),
         asr_device=asr.get("device", "cpu"),

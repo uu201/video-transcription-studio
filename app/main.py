@@ -54,7 +54,7 @@ def create_app() -> FastAPI:
     # 使用多 Worker 池，默认 2 个 Worker
     worker_count = getattr(settings, 'worker_count', 2)
     worker_pool = TaskWorkerPool(settings, database, event_hub, worker_count=worker_count)
-    ai_worker_pool = AIWorkerPool(settings, database, event_hub, worker_count=1)
+    ai_worker_pool = AIWorkerPool(settings, database, event_hub, worker_count=settings.ai_worker_count)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -116,6 +116,7 @@ def create_app() -> FastAPI:
             "root": str(settings.root_dir),
             "asrModel": settings.asr_model,
             "asrDevice": settings.asr_device,
+            "aiWorkerCount": settings.ai_worker_count,
             "funasr": SenseVoiceProvider.dependency_status(),
             "modelDir": str(settings.model_dir),
         }

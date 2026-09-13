@@ -28,7 +28,7 @@ class AIAnalysisTaskRepository:
     def claim_next(self, worker_id: str):
         now = utc_now()
         with self.database.connection() as conn:
-            row = conn.execute("SELECT id FROM ai_analysis_task WHERE status='QUEUED' AND cancel_requested=0 ORDER BY created_at LIMIT 1").fetchone()
+            row = conn.execute("SELECT id FROM ai_analysis_task WHERE status='QUEUED' AND cancel_requested=0 AND pause_requested=0 ORDER BY created_at LIMIT 1").fetchone()
             if not row: return None
             changed = conn.execute("UPDATE ai_analysis_task SET status='RUNNING', progress=1, message='开始分析', worker_id=?, started_at=COALESCE(started_at,?), heartbeat_at=?, updated_at=? WHERE id=? AND status='QUEUED'", (worker_id, now, now, now, row['id'])).rowcount
             return int(row['id']) if changed else None

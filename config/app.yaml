@@ -65,5 +65,7 @@ asr:
 ai:
   # AI Provider 默认启用开关；设置页保存的 AI 配置优先于此默认值。
   enabled: false
+  # AI 分析并发请求数；也可通过 VIDEO_TEXT_AI_WORKER_COUNT 环境变量覆盖。
+  worker_count: 3
   # AI 推理可能需要较长时间，避免默认 60 秒读取超时，单位为秒。
   timeout_seconds: 300
