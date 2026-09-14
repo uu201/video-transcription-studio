@@ -27,3 +27,19 @@ export function formatDateTime(value, options = {}) {
     .join(':')
   return `${values.year}-${values.month}-${values.day} ${time}`
 }
+
+/** Format elapsed wall-clock time for a queued task. */
+export function formatElapsed(startAt, finishedAt, now = Date.now()) {
+  if (!startAt) return '--'
+
+  const start = new Date(startAt).getTime()
+  if (Number.isNaN(start)) return '--'
+  const end = finishedAt ? new Date(finishedAt).getTime() : now
+  if (Number.isNaN(end) || end < start) return '--'
+
+  const totalSeconds = Math.floor((end - start) / 1000)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  return [hours, minutes, seconds].map(value => String(value).padStart(2, '0')).join(':')
+}

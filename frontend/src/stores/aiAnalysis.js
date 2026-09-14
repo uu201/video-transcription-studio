@@ -64,8 +64,13 @@ export const useAiAnalysisStore = defineStore('aiAnalysis', () => {
       ...(update.pauseRequested !== undefined ? { pauseRequested: update.pauseRequested } : {}),
       ...(update.cancelRequested !== undefined ? { cancelRequested: update.cancelRequested } : {}),
       ...(update.error !== undefined ? { error: update.error } : {}),
+      ...(update.startedAt ? { startedAt: update.startedAt } : {}),
+      ...(update.finishedAt ? { finishedAt: update.finishedAt } : {}),
       ...(updatedAt ? { updatedAt } : {})
     }
+    const merged = tasks.value[index]
+    if (update.status === 'RUNNING' && !merged.startedAt) merged.startedAt = updatedAt
+    if (['SUCCEEDED', 'FAILED', 'CANCELED'].includes(update.status) && !merged.finishedAt) merged.finishedAt = updatedAt
   }
 
   function removeRealtimeTask(id) { tasks.value = tasks.value.filter(task => task.id !== id) }

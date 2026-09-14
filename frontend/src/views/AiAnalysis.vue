@@ -33,6 +33,10 @@
           </div>
           <h3>{{ task.fileName || '未知文件' }}</h3>
           <n-text depth="3" class="active-task-message">{{ task.message || '正在分析' }}</n-text>
+          <div class="active-task-duration" aria-live="polite">
+            <span>已用时</span>
+            <strong>{{ taskDuration(task) }}</strong>
+          </div>
           <div class="active-progress-row">
             <n-progress type="line" :percentage="safeProgress(task.progress)" :show-indicator="false" processing />
             <strong>{{ safeProgress(task.progress) }}%</strong>
@@ -101,6 +105,7 @@ import {
   Trash as TrashOutline
 } from '@vicons/ionicons5'
 import { useAiAnalysisStore } from '@/stores/aiAnalysis'
+import { formatElapsed } from '@/utils/format'
 
 const store = useAiAnalysisStore()
 const router = useRouter()
@@ -109,8 +114,10 @@ const dialog = useDialog()
 const searchKeyword = ref('')
 const filterStatus = ref('all')
 const realtimeConnected = ref(false)
+const clockNow = ref(Date.now())
 let aiSocket = null
 let reconnectTimer = null
+let clockTimer = null
 
 const typeLabels = { FULL: '摘要和总结', SUMMARY: '摘要', CONCLUSION: '总结', OUTLINE: '总结', KEY_POINTS: '总结', QUOTES: '总结' }
 const statusLabels = { QUEUED: '待处理', RUNNING: '分析中', PAUSED: '已暂停', SUCCEEDED: '已完成', FAILED: '失败', CANCELED: '已取消' }
@@ -140,6 +147,7 @@ const columns = [
       h('span', `${safeProgress(row.progress)}%`)
     ])
   },
+  { title: '总耗时', key: 'duration', width: 120, render: row => h('span', { class: 'duration-value' }, taskDuration(row)) },
   { title: '提示', key: 'message', ellipsis: { tooltip: true } },
   { title: '更新时间', key: 'updatedAt', width: 170, render: row => formatDateTime(row.updatedAt || row.createdAt) },
   {
@@ -159,6 +167,13 @@ const columns = [
 
 function safeProgress(value) {
   return Math.max(0, Math.min(100, Number(value) || 0))
+}
+
+function taskDuration(task) {
+  const startedAt = task.startedAt || task.started_at
+  const finishedAt = task.finishedAt || task.finished_at
+  const stoppedAt = task.status === 'PAUSED' ? (task.updatedAt || task.updated_at) : undefined
+  return formatElapsed(startedAt, finishedAt || stoppedAt, clockNow.value)
 }
 
 function formatDateTime(value) {
@@ -247,11 +262,13 @@ function handleDelete(id) {
 }
 
 onMounted(() => {
+  clockTimer = window.setInterval(() => { clockNow.value = Date.now() }, 1000)
   store.fetchTasks()
   connectRealtime()
 })
 
 onUnmounted(() => {
+  if (clockTimer) window.clearInterval(clockTimer)
   if (reconnectTimer) window.clearTimeout(reconnectTimer)
   if (aiSocket) {
     aiSocket.onclose = null
@@ -276,6 +293,8 @@ onUnmounted(() => {
 .task-number { color: var(--n-text-color-3); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
 .active-task-card h3 { margin: 15px 0 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 17px; }
 .active-task-message { display: block; min-height: 20px; font-size: 12px; }
+.active-task-duration { display: flex; align-items: baseline; gap: 9px; margin-top: 11px; color: var(--n-text-color-3); font-size: 12px; }
+.active-task-duration strong, .duration-value { color: var(--n-text-color); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
 .active-progress-row { gap: 12px; margin-top: 17px; }
 .active-progress-row .n-progress { flex: 1; }
 .active-progress-row strong { min-width: 42px; text-align: right; font-variant-numeric: tabular-nums; }

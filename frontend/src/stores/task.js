@@ -33,9 +33,15 @@ export const useTaskStore = defineStore('task', () => {
       ...(update.message !== undefined ? { message: update.message } : {}),
       ...(update.pauseRequested !== undefined ? { pauseRequested: update.pauseRequested } : {}),
       ...(update.cancelRequested !== undefined ? { cancelRequested: update.cancelRequested } : {}),
+      ...(update.startedAt ? { startedAt: update.startedAt } : {}),
+      ...(update.finishedAt ? { finishedAt: update.finishedAt } : {}),
       ...(update.at ? { updatedAt: update.at } : {}),
       ...(update.error ? { error: update.error } : {})
     }
+
+    const merged = tasks.value[index]
+    if (update.status === 'RUNNING' && !merged.startedAt) merged.startedAt = update.at || update.updatedAt
+    if (['SUCCEEDED', 'FAILED', 'CANCELED'].includes(update.status) && !merged.finishedAt) merged.finishedAt = update.at || update.updatedAt
   }
 
   function removeRealtimeTask(taskId) {
